@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useCallback } from 'react'
+import { Fragment, useEffect, useRef, useState, useCallback } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { summarize } from '../lib/summary'
 import { createThreadImage } from '../lib/export'
@@ -23,7 +23,7 @@ import type {
   ThreadRecord,
 } from '../lib/thread'
 import '../lib/appearance'
-import { Post } from './Post'
+import { Icon, Post, ThreadReplyComposer } from './Post'
 import { AppearancePanel } from './AppearancePanel'
 import { Dialog } from './Dialog'
 import { ExportOptions } from './ExportOptions'
@@ -45,6 +45,7 @@ export function Threadly({
   readerToken?: string
   motion?: string
 }) {
+  const [selectionMode, setSelectionMode] = useState(false)
   const isReader = readerToken !== undefined
   const queryClient = useQueryClient()
   const [ready, setReady] = useState(false),
@@ -913,7 +914,7 @@ export function Threadly({
         </main>
       ) : (
         <main className="reading-window" aria-labelledby="readerTitle">
-          <div className="reader-intro">
+          <div className={record ? 'reader-intro sr-only' : 'reader-intro'}>
             <p className="eyebrow">YOUR SPACE TO READ</p>
             <h1 id="readerTitle">
               {record?.title ||
@@ -942,8 +943,16 @@ export function Threadly({
             aria-label="Twitter-style reading thread"
           >
             <div className="reader-toolbar">
-              <div>
-                <span className="reader-dot" aria-hidden="true" />
+              <a
+                className="thread-back"
+                href={backHref}
+                onClick={returnIntent}
+                aria-label="Back to create a thread"
+              >
+                <Icon name="back" />
+              </a>
+              <div className="thread-heading">
+                <h2>Post</h2>
                 <span id="threadInfo" role="status">
                   {record
                     ? `${record.posts.length} tweets · ${Math.max(1, Math.ceil(record.posts.join(' ').split(/\s+/).length / 220))} min read`
@@ -951,48 +960,85 @@ export function Threadly({
                 </span>
               </div>
               {record && (
-                <div className="reader-tools" id="readerTools">
-                  <button id="save" className="secondary" onClick={save}>
-                    Save
-                  </button>
-                  <button
-                    id="download"
-                    className="secondary"
-                    onClick={() => {
-                      download(
-                        new Blob([fullText()], {
-                          type: 'text/plain;charset=utf-8',
-                        }),
-                        'threadly-thread.txt',
-                      )
-                      notify('Thread downloaded')
-                    }}
-                  >
-                    Text
-                  </button>
-                  <button
-                    id="images"
-                    className="secondary"
-                    onClick={() => {
-                      setExportResult(null)
-                      setModal({ kind: 'export' })
-                    }}
-                  >
-                    Save image
-                  </button>
-                  <button
-                    id="copyAll"
-                    className="copy-primary"
-                    onClick={() => void copy(fullText())}
-                  >
-                    Copy thread
-                  </button>
-                </div>
+                <details
+                  className="reader-options"
+                  onClick={(event) => {
+                    if ((event.target as HTMLElement).closest('button'))
+                      event.currentTarget.open = false
+                  }}
+                >
+                  <summary aria-label="Thread options">
+                    <Icon name="more" />
+                  </summary>
+                  <div className="reader-tools" id="readerTools">
+                    <button id="save" className="secondary" onClick={save}>
+                      Save
+                    </button>
+                    <button
+                      id="download"
+                      className="secondary"
+                      onClick={() => {
+                        download(
+                          new Blob([fullText()], {
+                            type: 'text/plain;charset=utf-8',
+                          }),
+                          'threadly-thread.txt',
+                        )
+                        notify('Thread downloaded')
+                      }}
+                    >
+                      Text
+                    </button>
+                    <button
+                      id="images"
+                      className="secondary"
+                      onClick={() => {
+                        setExportResult(null)
+                        setModal({ kind: 'export' })
+                      }}
+                    >
+                      Save image
+                    </button>
+                    <button
+                      id="copyAll"
+                      className="copy-primary"
+                      onClick={() => void copy(fullText())}
+                    >
+                      Copy thread
+                    </button>
+                    <button
+                      className="secondary"
+                      aria-pressed={selectionMode}
+                      onClick={() => {
+                        setSelectionMode(!selectionMode)
+                        if (selectionMode) setSelected(new Set())
+                      }}
+                    >
+                      {selectionMode ? 'Done selecting' : 'Select posts'}
+                    </button>
+                    <button
+                      className="secondary"
+                      onClick={() => setModal({ kind: 'appearance' })}
+                    >
+                      Appearance
+                    </button>
+                    <button
+                      className="secondary"
+                      onClick={() => setModal({ kind: 'library' })}
+                    >
+                      Saved threads
+                    </button>
+                  </div>
+                </details>
               )}
             </div>
             {record ? (
               <>
-                <div id="selectionBar" className="selection-bar">
+                <div
+                  id="selectionBar"
+                  className="selection-bar"
+                  hidden={!selectionMode}
+                >
                   <span id="selectionCount">
                     {selected.size
                       ? selected.size + ' selected'
@@ -1027,29 +1073,87 @@ export function Threadly({
                 </div>
                 <div id="thread" className="thread">
                   {record.posts.map((_, i) => (
-                    <Post
-                      key={record.id + ':' + i}
-                      record={record}
-                      index={i}
-                      selected={selected.has(i)}
-                      onSelect={toggleSelection}
-                      onEdit={(index, value) => {
-                        if (value === record.posts[index]) return
-                        const posts = [...record.posts]
-                        posts[index] = value
-                        updateRecord({ ...record, posts })
-                      }}
-                      onReact={react}
-                      onReply={(index) => setModal({ kind: 'reply', index })}
-                      onCopy={(i) => void copy(numbered(i))}
-                      onShare={(i) => void share(i)}
-                      onExport={(i) => void exportImages([i])}
-                      onImage={(item) => setModal({ kind: 'media', item })}
-                    />
+                    <Fragment key={record.id + ':' + i}>
+                      <Post
+                        selectionMode={selectionMode}
+                        record={record}
+                        index={i}
+                        selected={selected.has(i)}
+                        onSelect={toggleSelection}
+                        onEdit={(index, value) => {
+                          if (value === record.posts[index]) return
+                          const posts = [...record.posts]
+                          posts[index] = value
+                          updateRecord({ ...record, posts })
+                        }}
+                        onReact={react}
+                        onReply={(index) => {
+                          if (index === 0)
+                            document.getElementById('threadReply')?.focus()
+                          else setModal({ kind: 'reply', index })
+                        }}
+                        onCopy={(i) => void copy(numbered(i))}
+                        onShare={(i) => void share(i)}
+                        onExport={(i) => void exportImages([i])}
+                        onImage={(item) => setModal({ kind: 'media', item })}
+                      />
+                      {i === 0 && (
+                        <>
+                          <ThreadReplyComposer
+                            onReply={(value) => {
+                              const state: Reaction = record
+                                .interactions[0] || { replies: [] }
+                              updateRecord(
+                                {
+                                  ...record,
+                                  interactions: {
+                                    ...record.interactions,
+                                    0: {
+                                      ...state,
+                                      replies: [
+                                        ...(state.replies || []),
+                                        {
+                                          text: value,
+                                          date: new Date().toISOString(),
+                                        },
+                                      ],
+                                    },
+                                  },
+                                },
+                                true,
+                              )
+                              notify('Reply saved on this device')
+                            }}
+                          />
+                          {!!record.interactions[0]?.replies?.length && (
+                            <div
+                              className="thread-local-replies"
+                              aria-label="Your local replies"
+                            >
+                              {record.interactions[0].replies.map(
+                                (reply, index) => (
+                                  <article key={index}>
+                                    <div className="avatar">
+                                      <Icon name="user" />
+                                    </div>
+                                    <div>
+                                      <strong>
+                                        You <span>@you · local</span>
+                                      </strong>
+                                      <p>{reply.text}</p>
+                                    </div>
+                                  </article>
+                                ),
+                              )}
+                            </div>
+                          )}
+                        </>
+                      )}
+                    </Fragment>
                   ))}
                 </div>
                 <div id="readerFoot" className="reader-bottom">
-                  Click text to edit · Use the checkboxes to select tweets
+                  End of thread · {record.posts.length} posts
                 </div>
               </>
             ) : (

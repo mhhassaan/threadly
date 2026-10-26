@@ -2,6 +2,8 @@ import { useEffect, useRef, useState } from 'react'
 import { mediaUrl, remoteUrl } from '../lib/thread'
 import type { Media, ThreadRecord, Reaction } from '../lib/thread'
 const paths: Record<string, string> = {
+  more: 'M5 12h.01M12 12h.01M19 12h.01',
+  back: 'M19 12H5m7-7-7 7 7 7',
   reply: 'M21 11.5a8.5 8.5 0 0 1-8.5 8.5H4l2.3-3.1A8.5 8.5 0 1 1 21 11.5Z',
   retweet:
     'm4 8 3-3 3 3M7 5v11a2 2 0 0 0 2 2h4m7-2-3 3-3-3m3 3V8a2 2 0 0 0-2-2h-4',
@@ -103,6 +105,7 @@ export function Post({
   record,
   index,
   selected,
+  selectionMode,
   onSelect,
   onEdit,
   onReact,
@@ -115,6 +118,7 @@ export function Post({
   record: ThreadRecord
   index: number
   selected: boolean
+  selectionMode: boolean
   onSelect: (i: number) => void
   onEdit: (i: number, text: string) => void
   onReact: (i: number, key: 'liked' | 'reposted' | 'bookmarked') => void
@@ -125,11 +129,12 @@ export function Post({
   onImage: (m: Media) => void
 }) {
   const [avatarFailed, setAvatarFailed] = useState(false)
-  const text = record.posts[index]
-  const state: Reaction = record.interactions[index] || { replies: [] }
-  const name = record.source?.name || 'You'
-  const handle = record.source?.handle ? '@' + record.source.handle : '@you'
-  const icon = mediaUrl(record.source?.icon)
+  const text = record.posts[index],
+    state: Reaction = record.interactions[index] || { replies: [] }
+  const name = record.source?.name || 'You',
+    handle = record.source?.handle ? '@' + record.source.handle : '@you'
+  const icon = mediaUrl(record.source?.icon),
+    first = index === 0
   const n = Array.from(
     text + ' ' + (index + 1) + '/' + record.posts.length,
   ).length
@@ -139,13 +144,19 @@ export function Post({
     if (editable.current && editable.current.innerText !== text)
       editable.current.innerText = text
   }, [text])
+  function menuAction(
+    event: React.MouseEvent<HTMLElement>,
+    action: () => void,
+  ) {
+    event.currentTarget.closest('details')?.removeAttribute('open')
+    action()
+  }
   return (
     <article
       className={
-        'post' +
-        (index === 0 ? ' first-post' : '') +
-        (selected ? ' is-selected' : '')
+        'post' + (first ? ' first-post' : '') + (selected ? ' is-selected' : '')
       }
+      aria-label={'Post ' + (index + 1) + ' of ' + record.posts.length}
     >
       <div
         className={
@@ -165,13 +176,19 @@ export function Post({
       </div>
       <div className="post-body">
         <div className="repost-label" hidden={!state.reposted}>
-          ↻ Reposted by you · local
+          Reposted by you · local
         </div>
         <div className="author">
-          <strong className="source-name">{name}</strong>
-          <span className="handle">{handle}</span>
-          <span className="tweet-time">· now</span>
-          <label className="post-select">
+          <div className="author-identity">
+            <strong className="source-name">{name}</strong>
+            <span className="handle">{handle}</span>
+          </div>
+          {!first && (
+            <span className="tweet-time">
+              · {index + 1}/{record.posts.length}
+            </span>
+          )}
+          <label className="post-select" hidden={!selectionMode}>
             <input
               type="checkbox"
               aria-label={'Select tweet ' + (index + 1)}
@@ -180,12 +197,23 @@ export function Post({
             />
             <span className="sr-only">Select tweet</span>
           </label>
+          <details className="post-more">
+            <summary aria-label={'More options for post ' + (index + 1)}>
+              <Icon name="more" />
+            </summary>
+            <div className="post-menu">
+              <button onClick={(e) => menuAction(e, () => onCopy(index))}>
+                <Icon name="copy" />
+                Copy post
+              </button>
+              <button onClick={(e) => menuAction(e, () => onExport(index))}>
+                <Icon name="image" />
+                Save as image
+              </button>
+              <span>{n} characters</span>
+            </div>
+          </details>
         </div>
-        {index > 0 && (
-          <div className="replying">
-            Replying to <span>{handle}</span>
-          </div>
-        )}
         <div
           ref={editable}
           className="posttext"
@@ -204,17 +232,26 @@ export function Post({
           </div>
         )}
         <div className="tweet-meta">
-          <span className="postnum">
-            {index + 1}/{record.posts.length}
-          </span>
-          <span
-            className="chars"
-            title={
-              n > 280
-                ? 'Kept together to preserve a complete sentence. Edit if you need a shorter tweet.'
-                : undefined
-            }
-          >
+          {first && (
+            <>
+              <span>{record.date || 'Reading thread'}</span>
+              <span aria-hidden="true"> · </span>
+              <span>{record.posts.length} posts</span>
+              {remoteUrl(record.sourceUrl) && (
+                <>
+                  <span aria-hidden="true"> · </span>
+                  <a
+                    href={remoteUrl(record.sourceUrl)}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    Source
+                  </a>
+                </>
+              )}
+            </>
+          )}
+          <span className="chars">
             {n > 280 ? n + ' characters · complete thought' : n + '/280'}
           </span>
         </div>
@@ -257,21 +294,52 @@ export function Post({
           >
             <Icon name="bookmark" />
           </button>
-          <button aria-label="Copy this tweet" onClick={() => onCopy(index)}>
-            <Icon name="copy" />
-          </button>
           <button aria-label="Share this tweet" onClick={() => onShare(index)}>
             <Icon name="share" />
-          </button>
-          <button
-            className="image-post"
-            aria-label="Save tweet as image"
-            onClick={() => onExport(index)}
-          >
-            <Icon name="image" />
           </button>
         </div>
       </div>
     </article>
+  )
+}
+export function ThreadReplyComposer({
+  onReply,
+}: {
+  onReply: (text: string) => void
+}) {
+  const [value, setValue] = useState('')
+  return (
+    <form
+      className="thread-reply-composer"
+      onSubmit={(e) => {
+        e.preventDefault()
+        if (value.trim()) {
+          onReply(value.trim())
+          setValue('')
+        }
+      }}
+    >
+      <div className="avatar" aria-label="Your profile picture">
+        <Icon name="user" />
+      </div>
+      <label className="sr-only" htmlFor="threadReply">
+        Post your reply
+      </label>
+      <textarea
+        id="threadReply"
+        placeholder="Post your reply"
+        aria-describedby="threadReplyHint"
+        maxLength={2000}
+        rows={1}
+        value={value}
+        onChange={(e) => setValue(e.target.value)}
+      />
+      <button type="submit" disabled={!value.trim()}>
+        Reply
+      </button>
+      <span id="threadReplyHint" className="sr-only">
+        Replies are saved on this device and are not posted to X.
+      </span>
+    </form>
   )
 }
