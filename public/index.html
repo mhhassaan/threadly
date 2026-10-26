@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,interactive-widget=resizes-content">
+  <meta name="theme-color" content="#f8f9f5">
+  <link rel="icon" href="/brand/threadly-mark.svg" type="image/svg+xml">
+  <title>Threadly — Read the big picture</title>
+  <meta name="description" content="Turn articles into clear, detailed threads in your own reading window.">
+  <script>document.documentElement.classList.toggle('reader-page',new URLSearchParams(location.search).has('reader'));</script>
+  <script src="/appearance.js"></script><link rel="preload" href="/fonts/jersey25-regular.ttf" as="font" type="font/ttf" crossorigin>
+  <link rel="preload" href="/fonts/chirp-regular.woff" as="font" type="font/woff" crossorigin>
+  <link rel="stylesheet" href="/style.css">
+  <script type="module" src="/app.js"></script>
+</head>
+<body>
+  <header class="app-header">
+    <a class="brand" href="/" aria-label="Threadly home"><img class="brand-symbol" src="/brand/threadly-mark.svg" width="36" height="36" alt=""><span class="brand-wordmark">threadly</span> <small>BETA</small></a>
+    <nav aria-label="Main navigation"><a id="newThread" class="nav-active" href="/">Create a thread</a><button id="library">Saved threads <span id="savedCount">0</span></button></nav>
+    <div class="header-tools"><button id="appearance" class="appearance-button" aria-label="Appearance and themes">◐ <span>Appearance</span></button><button class="about-button" id="about">How it works <span aria-hidden="true">↗</span></button></div>
+  </header>
+  <main class="dashboard">
+    <section class="intro-block" aria-labelledby="dashboardTitle">
+      <p class="eyebrow"><span aria-hidden="true"></span> A LITTLE LESS OVERWHELM</p>
+      <h1 id="dashboardTitle">A big idea.<br>A little easier to read<span>.</span></h1>
+      <p class="intro">Bring an article. Keep the context.<br>We’ll turn it into a thread, in a space made for reading.</p>
+    </section>
+    <section class="source panel" aria-labelledby="sourceHeading">
+      <div class="panel-title"><div><span class="step" aria-hidden="true">01</span><h2 id="sourceHeading">Start with your source</h2></div><span class="private-label">Just for you</span></div>
+      <div class="tabs" role="tablist" aria-label="Source type">
+        <button id="textTab" role="tab" aria-selected="true" aria-controls="textPane" class="selected">≡ <span>Paste text</span></button>
+        <button id="urlTab" role="tab" aria-selected="false" aria-controls="urlPane" tabindex="-1">↗ <span>Article link</span></button>
+        <button id="fileTab" role="tab" aria-selected="false" aria-controls="filePane" tabindex="-1">⇧ <span>Upload file</span></button>
+      </div>
+      <div class="source-panes">
+      <div id="textPane" role="tabpanel" aria-labelledby="textTab">
+        <label class="sr-only" for="sourceText">Source text</label>
+        <div class="source-input text-input">
+        <textarea id="sourceText" maxlength="100000" placeholder="Paste the article, essay, or idea you’ve been meaning to read…" aria-describedby="sourceHint wordCount"></textarea>
+        <div class="text-footer"><span id="wordCount">0 words</span><button id="clear">Clear text</button></div>
+        </div>
+        <p class="hint" id="sourceHint">Start with at least 30 words so we can keep the context.</p>
+      </div>
+      <div id="urlPane" role="tabpanel" aria-labelledby="urlTab" hidden>
+        <div class="source-input link-input">
+        <label class="field-label" for="articleUrl">Article URL</label>
+        <input type="url" id="articleUrl" placeholder="https://example.com/something-worth-reading" inputmode="url" autocapitalize="none" autocorrect="off" enterkeyhint="go" aria-describedby="urlHint">
+        </div>
+        <p class="hint" id="urlHint">Public articles work best. For paywalled pages, paste the text.</p>
+      </div>
+      <div id="filePane" role="tabpanel" aria-labelledby="fileTab" hidden>
+        <div id="dropZone" class="source-input drop-zone"><div class="upload-heading"><span class="upload-icon" aria-hidden="true">⇧</span><strong>A good read starts here</strong></div><p>Drop a text file here, or choose one.</p><button id="chooseFile" class="secondary">Browse files</button><small>TXT or Markdown · up to 1 MB</small><input id="fileInput" type="file" accept=".txt,.md,text/plain,text/markdown" class="sr-only" tabindex="-1" aria-label="Upload a text or Markdown file"></div>
+        <p id="fileName" class="hint" role="status">Your text opens in the editor, ready to review.</p>
+      </div>
+      </div>
+      <fieldset class="settings"><legend>How much detail feels right?</legend><div class="depth" role="group" aria-label="Summary depth"><button data-depth="quick" aria-pressed="false"><strong>Quick read</strong><span>The essentials</span></button><button data-depth="balanced" class="active" aria-pressed="true"><strong>Balanced <span aria-hidden="true">✦</span></strong><span>Clarity + context</span></button><button data-depth="detailed" aria-pressed="false"><strong>Deep dive</strong><span>Room for nuance</span></button></div><div class="length"><label for="length">Thread length</label><select id="length"><option value="auto">Auto · recommended</option><option value="5">Up to 5 posts</option><option value="10">Up to 10 posts</option><option value="20">Up to 20 posts</option></select></div></fieldset>
+      <div id="error" role="alert" hidden></div>
+      <button id="generate" class="generate"><span>Create my thread</span></button>
+      <div id="resultNotice" class="result-notice" hidden><div><strong>Your thread is ready</strong><p id="resultHint">Your source stays here for your next read.</p></div><button id="reopenReader" class="secondary">Open thread ↗</button></div>
+      <div class="try"><span>Something to get you started?</span><button id="example" class="text-button">Try an example <span aria-hidden="true">↗</span></button></div>
+    </section>
+    <footer><span class="footer-signature"><img src="/brand/threadly-mark.svg" width="22" height="22" alt="">Built for curious minds.</span><span>Read less noise. Keep more meaning.</span></footer>
+  </main>
+  <main class="reading-window" aria-labelledby="readerTitle">
+    <div class="reader-intro"><p class="eyebrow">YOUR SPACE TO READ</p><h1 id="readerTitle">Getting your thread ready…</h1><p id="readerDescription">Your source is still open in the original window.</p><a id="sourceLink" target="_blank" rel="noopener noreferrer" hidden>Read original article ↗</a></div>
+    <section class="reader panel" aria-label="Twitter-style reading thread">
+      <div class="reader-toolbar"><div><span class="reader-dot" aria-hidden="true"></span><span id="threadInfo" role="status">Preparing your thread</span></div><div class="reader-tools" id="readerTools" hidden><button id="save" class="secondary">Save</button><button id="download" class="secondary">Text</button><button id="images" class="secondary">Save image</button><button id="copyAll" class="copy-primary">Copy thread</button></div></div>
+      <div id="readerState" class="reader-state" role="status"><span class="loading-mark" aria-hidden="true">≋</span><h2>A little clarity is on its way</h2><p>We’re collecting the ideas that matter.</p></div>
+      <div id="selectionBar" class="selection-bar" hidden><span id="selectionCount">0 selected</span><button id="selectAll" class="text-button">Select all</button><button id="clearSelection" class="text-button">Clear</button><button id="exportSelected" class="secondary" disabled>Save selected</button></div><div id="thread" class="thread"></div>
+      <div id="readerFoot" class="reader-bottom" hidden>Click text to edit · Use the checkboxes to select tweets</div>
+    </section>
+    <a class="reader-back" href="/">← Create another thread</a>
+  </main>
+  <div id="toast" role="status" aria-live="polite"></div>
+  <dialog id="modal" aria-labelledby="modalTitle"><div class="modal-top"><h2 id="modalTitle"></h2><button id="closeModal" aria-label="Close dialog">×</button></div><div id="modalBody"></div></dialog>
+</body></html>
+
