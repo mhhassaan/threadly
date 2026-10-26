@@ -1,0 +1,7 @@
+node_modules/
+dist/
+.pnpm-store/
+.tanstack/
+src/routeTree.gen.ts
+public/fonts/
+work/

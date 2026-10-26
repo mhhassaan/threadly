@@ -1,1 +1,15 @@
-import http from 'node:http';import worker from '../dist/server/index.js';http.createServer(async(req,res)=>{try{const chunks=[];for await(const c of req)chunks.push(c);const r=await worker.fetch(new Request('http://localhost:4173'+req.url,{method:req.method,headers:req.headers,...(chunks.length?{body:Buffer.concat(chunks)}:{})}));res.writeHead(r.status,Object.fromEntries(r.headers));res.end(Buffer.from(await r.arrayBuffer()));}catch(e){res.writeHead(500);res.end(String(e));}}).listen(4173,'127.0.0.1',()=>console.log('Local: http://localhost:4173'));
+// Preview the production TanStack build on the established local port.
+import { spawn } from 'node:child_process'
+const child = spawn(
+  process.execPath,
+  [
+    'node_modules/vite/bin/vite.js',
+    'preview',
+    '--host',
+    '127.0.0.1',
+    '--port',
+    '4173',
+  ],
+  { stdio: 'inherit' },
+)
+child.on('exit', (code) => process.exit(code ?? 1))

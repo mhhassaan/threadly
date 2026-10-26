@@ -20,58 +20,78 @@ Threadly turns articles, pasted text, and TXT or Markdown files into editable Tw
 
 Threadly currently uses extractive summarization: it selects connected passages from the source rather than generating new text with an LLM. Long sentences may exceed 280 characters to preserve a complete thought.
 
-AI conversations about threads and individual posts are being considered. AI chat and a TanStack migration are not implemented.
+The app runs on TanStack Start, TanStack Router, TanStack Query, React, and TypeScript. AI conversations about threads and individual posts remain a planned next phase; no LLM provider or API key is connected.
 
 ## Run locally
 
-Requires Node.js 22 or newer. The current app has no third-party JavaScript package dependencies and does not require an API key or an installation step.
-
-From the project directory:
+Requires Node.js 22.12 or newer (Node.js 24 recommended) and pnpm 11. The app does not require an AI API key.
 
 ```sh
-node scripts/build.mjs
-node scripts/preview.mjs
+pnpm install --frozen-lockfile
+pnpm dev
 ```
 
-Open [http://localhost:4173](http://localhost:4173). Stop the preview with Ctrl+C.
+Open [http://127.0.0.1:4173](http://127.0.0.1:4173). Stop the server with Ctrl+C. The Vite development server reloads source changes automatically and listens only on the local machine.
 
-The preview listens on the local machine only. It does not hot-reload: after editing source files, rebuild, stop the existing preview, and start it again.
+To build and preview the production app:
 
-The equivalent package scripts are `npm run build` and `npm run dev`. Run the build before starting the preview.
+```sh
+pnpm build
+pnpm preview
+```
+
+Stop the development server before starting the production preview; both use port 4173. Rebuild after editing source if you are running the production preview.
 
 ## Checks
 
-Build first, then run the functional checks:
-
 ```sh
-node scripts/build.mjs
-node scripts/check.mjs
+pnpm typecheck
+pnpm check
+pnpm build
 ```
 
-The checks cover source extraction, sentence continuity, summary depth and limits, media handling, themes, image export wrapping, ZIP output, and rejection of private-address fetch targets. Browser checks are still needed for layout and interactions; mobile touch and keyboard behavior should be checked on a physical device.
+`pnpm smoke` starts a temporary production preview on port 4185 and checks server rendering, reader routing, assets, API address rejection, and 404 handling. Run it after building.
+
+The functional checks cover extraction, sentence continuity, summary depth and limits, media handling, themes, image wrapping, ZIP output, and rejection of private-address fetch targets. TypeScript checks the application and routes. Browser checks are still needed for layout, hydration, reader-window transfer, and exports; touch and keyboard behavior should also be checked on a physical device.
+
+`pnpm format` formats the source. The older `node scripts/build.mjs` and `node scripts/preview.mjs` commands remain as wrappers around the new build and preview.
 
 ## Project structure
 
 ```text
+src/
+  router.tsx            Typed TanStack router and per-request Query client
+  routes/
+    __root.tsx          HTML document, metadata, styles, Query provider
+    index.tsx           Dashboard/reader route with validated search state
+    api.article.ts      Article import server route
+    api.media.ts        Media proxy server route
+  components/           React dashboard, reader, posts, and dialogs
+  lib/
+    thread.ts           Thread types, storage compatibility, media helpers
+    summary.js          Source-based summarization
+    export.js           Canvas PNG and ZIP exports
+    appearance.ts       Theme API types
+  server/article.js     Article extraction and validated public fetches
+  style.css             Shared visual design and motion
 public/
-  index.html       Dashboard and reader markup
-  style.css        Layout, themes, typography, and motion
-  app.js           Input, reader interactions, and saved threads
-  summary.js       Source-based summarization
-  appearance.js    Theme preferences and shared color tokens
-  export.js        Canvas image export and ZIP packaging
-  fonts/           Local fonts and provenance records
-  brand/           Logo assets and design notes
-worker/
-  index.js         Article extraction, media proxy, and asset routes
+  appearance.js         Theme bootstrap before hydration
+  fonts/                Local fonts and provenance
+  brand/                Logo assets and design notes
 scripts/
-  build.mjs        Embeds browser assets into the Worker build
-  preview.mjs      Local Node.js server for the built app
-  check.mjs        Functional regression checks
-devlog.md          Project change history
+  check.mjs             Core functional regression checks
+vite.config.ts          TanStack Start and React configuration
+pnpm-lock.yaml          Reproducible dependency versions
+devlog.md               Project change history
 ```
 
-Authored source lives in `public/`, `worker/`, and `scripts/`. The generated `dist/` directory is excluded from Git.
+`src/routeTree.gen.ts` is generated by TanStack Router; do not edit it manually. `dist/`, local package caches, and deployment identity are excluded from Git.
+
+## Architecture
+
+React owns the UI and interaction state. TanStack Router validates reader and navigation parameters; existing `/?reader=...` links remain supported. TanStack Query coordinates article-import mutations and the browser-local saved-library cache, including cross-window invalidation.
+
+Article extraction and the media proxy run in TanStack server routes. The summary and canvas-export engines remain framework-independent JavaScript modules. Original source text is retained in newly created thread records to support future source-grounded conversations. Existing saved records remain compatible; older records may not contain full source text.
 
 ## Data and privacy
 
@@ -90,9 +110,9 @@ Saved threads and appearance preferences use local storage; the active reader us
 
 ## Hosting
 
-The build produces `dist/server/index.js`, which exports a Worker-compatible request handler. The local preview runs that handler through Node.js.
+`pnpm build` produces the TanStack client and server output under `dist/`; `pnpm preview` verifies it locally. Deployment requires a TanStack Start-compatible host or adapter. The former embedded single-Worker build is no longer the app runtime.
 
-Existing deployment identity is stored locally in `.openai/hosting.json` and excluded from Git. When present, the build copies it into `dist/.openai/`. It is optional for local builds and checks. Keep an existing manifest when updating its associated deployment; a new deployment requires configuration for the chosen host.
+The existing `.openai/hosting.json` remains local and unchanged. It is not needed for development or checks and is not copied into the new build. The prior hosted app has not been redeployed by this migration; preserve its identity when configuring a future deployment.
 
 ## Fonts and asset attribution
 
