@@ -10,6 +10,7 @@ import {
 import type { ReactNode } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { createAccountBoundary, mapAccountUser } from './auth-state'
+import { createAccountTransitions } from './account-transitions'
 import type { AccountUser } from './auth-state'
 export { clearAccountCache, draftKey } from './auth-state'
 
@@ -35,6 +36,9 @@ export function AccountProvider({ children }: { children: ReactNode }) {
   const client = useQueryClient()
   const session = authClient.useSession()
   const boundary = useRef<ReturnType<typeof createAccountBoundary> | null>(null)
+  const transitions = useRef<ReturnType<
+    typeof createAccountTransitions
+  > | null>(null)
   const [appliedOwner, setAppliedOwner] = useState<string | null>(null)
   const [expired, setExpired] = useState(false)
   const user = session.error ? null : mapAccountUser(session.data?.user)
@@ -45,6 +49,18 @@ export function AccountProvider({ children }: { children: ReactNode }) {
       storage = sessionStorage
     } catch {}
     boundary.current ??= createAccountBoundary(client, storage)
+    transitions.current ??= createAccountTransitions(boundary.current, {
+      applied: setAppliedOwner,
+      expired: setExpired,
+      broadcast: (userId) => {
+        try {
+          localStorage.setItem(
+            logoutKey,
+            JSON.stringify({ userId, nonce: crypto.randomUUID() }),
+          )
+        } catch {}
+      },
+    })
     const onLogout = (event: StorageEvent) => {
       if (event.key !== logoutKey || !event.newValue) return
       try {
@@ -60,9 +76,7 @@ export function AccountProvider({ children }: { children: ReactNode }) {
   }, [client])
   useEffect(() => {
     if (session.isPending) return
-    setExpired(!id && !!boundary.current?.owner())
-    boundary.current?.observe(id)
-    setAppliedOwner(id)
+    transitions.current?.apply(id, session.data?.session.id ?? null)
   }, [id, session.isPending, session.error, session.data])
   const value: AccountStatus = {
     user: id === appliedOwner ? user : null,
@@ -71,30 +85,10 @@ export function AccountProvider({ children }: { children: ReactNode }) {
     expired,
     retry: () => session.refetch(),
     signOut: async () => {
-      const owner = boundary.current?.owner()
-      boundary.current?.logout()
-      setExpired(false)
-      if (owner) {
-        try {
-          localStorage.setItem(
-            logoutKey,
-            JSON.stringify({ userId: owner, nonce: crypto.randomUUID() }),
-          )
-        } catch {}
-      }
-      try {
-        const result = await authClient.signOut()
-        if (result.error) throw new Error('Sign out failed')
-        setAppliedOwner(null)
-        await session.refetch()
-      } catch {
-        // A failed server logout leaves the current account valid. Restore its
-        // owner marker so a later explicit logout also clears any new drafts.
-        boundary.current?.observe(id)
-        throw new Error(
-          'Could not sign out. Check your connection and try again.',
-        )
-      }
+      await transitions.current?.signOut(
+        () => authClient.signOut(),
+        () => session.refetch(),
+      )
     },
   }
   return createElement(AccountContext.Provider, { value }, children)

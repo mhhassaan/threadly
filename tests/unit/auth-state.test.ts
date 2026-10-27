@@ -148,3 +148,144 @@ test('email sign-in keeps the current page and unsaved source draft', async () =
     vi.unstubAllGlobals()
   }
 })
+
+test.each(['reject', 'resolve'] as const)(
+  'deferred Alice logout %s cannot replace Bob provider ownership',
+  async (outcome) => {
+    const { createAccountTransitions } =
+      await import('../../src/features/account/account-transitions')
+    const cache = new QueryClient(),
+      drafts = storage(),
+      boundary = createAccountBoundary(cache, drafts)
+    let applied: string | null = null
+    const broadcast: string[] = []
+    const transitions = createAccountTransitions(boundary, {
+      applied: (id) => {
+        applied = id
+      },
+      expired() {},
+      broadcast: (id) => {
+        broadcast.push(id)
+      },
+    })
+    transitions.apply('alice', 'alice-session')
+    let rejectAlice!: (error: Error) => void
+    let resolveAlice!: (value: { error: null }) => void
+    const aliceRequest = new Promise<{ error?: unknown }>((resolve, reject) => {
+      resolveAlice = resolve
+      rejectAlice = reject
+    })
+    const aliceLogout = transitions
+      .signOut(
+        () => aliceRequest,
+        async () => {},
+      )
+      .catch((error) => error)
+    transitions.apply('bob', 'bob-session')
+    cache.setQueryData(['account', 'bob', 'thread'], 'bob private')
+    drafts.setItem(draftKey('bob', 'reply'), 'bob private draft')
+    cache.setQueryData(['local-library'], ['guest'])
+    drafts.setItem('threadly-library', 'guest records')
+    if (outcome === 'reject') rejectAlice(new Error('old network failure'))
+    else resolveAlice({ error: null })
+    expect(await aliceLogout).toBeUndefined()
+    expect(applied).toBe('bob')
+    expect(boundary.owner()).toBe('bob')
+    expect(cache.getQueryData(['account', 'bob', 'thread'])).toBe('bob private')
+    expect(drafts.getItem(draftKey('bob', 'reply'))).toBe('bob private draft')
+    await transitions.signOut(
+      async () => ({ error: null }),
+      async () => {},
+    )
+    expect(cache.getQueryData(['account', 'bob', 'thread'])).toBeUndefined()
+    expect(drafts.getItem(draftKey('bob', 'reply'))).toBeNull()
+    expect(cache.getQueryData(['local-library'])).toEqual(['guest'])
+    expect(drafts.getItem('threadly-library')).toBe('guest records')
+    expect(broadcast).toEqual(['alice', 'bob'])
+  },
+)
+
+test('provider hides pending logout owner and clears late private refill on completion', async () => {
+  const { createAccountTransitions } =
+    await import('../../src/features/account/account-transitions')
+  const cache = new QueryClient(),
+    drafts = storage(),
+    boundary = createAccountBoundary(cache, drafts)
+  let applied: string | null = null
+  const transitions = createAccountTransitions(boundary, {
+    applied: (id) => {
+      applied = id
+    },
+    expired() {},
+    broadcast() {},
+  })
+  transitions.apply('alice', 'alice-session')
+  let finish!: (value: { error: null }) => void
+  const request = new Promise<{ error: null }>((resolve) => {
+    finish = resolve
+  })
+  const logout = transitions.signOut(
+    () => request,
+    async () => {},
+  )
+  expect(applied).toBeNull()
+  transitions.apply('alice', 'alice-session')
+  expect(applied).toBeNull()
+  cache.setQueryData(['account', 'alice', 'late'], 'late private refill')
+  drafts.setItem(draftKey('alice', 'reply'), 'late private draft')
+  let resolveLate!: (value: string) => void
+  const lateQuery = cache
+    .fetchQuery({
+      queryKey: ['account', 'alice', 'network'],
+      queryFn: () =>
+        new Promise<string>((resolve) => {
+          resolveLate = resolve
+        }),
+    })
+    .catch(() => undefined)
+  finish({ error: null })
+  await logout
+  resolveLate('late private response after completed logout')
+  await lateQuery
+  expect(cache.getQueryData(['account', 'alice', 'network'])).toBeUndefined()
+  expect(applied).toBeNull()
+  expect(boundary.owner()).toBeNull()
+  expect(cache.getQueryData(['account', 'alice', 'late'])).toBeUndefined()
+  expect(drafts.getItem(draftKey('alice', 'reply'))).toBeNull()
+})
+
+test('a current logout failure restores only its own session after clearing private refills', async () => {
+  const { createAccountTransitions } =
+    await import('../../src/features/account/account-transitions')
+  const cache = new QueryClient(),
+    drafts = storage(),
+    boundary = createAccountBoundary(cache, drafts)
+  let applied: string | null = null
+  const transitions = createAccountTransitions(boundary, {
+    applied: (id) => {
+      applied = id
+    },
+    expired() {},
+    broadcast() {},
+  })
+  transitions.apply('alice', 'alice-session')
+  let fail!: (error: Error) => void
+  const request = new Promise<{ error: null }>((_resolve, reject) => {
+    fail = reject
+  })
+  const logout = transitions
+    .signOut(
+      () => request,
+      async () => {},
+    )
+    .catch((error) => error)
+  expect(applied).toBeNull()
+  cache.setQueryData(['account', 'alice', 'late'], 'private refill')
+  drafts.setItem(draftKey('alice', 'reply'), 'private refill')
+  fail(new Error('network unavailable'))
+  expect(await logout).toBeInstanceOf(Error)
+  expect(applied).toBe('alice')
+  expect(boundary.owner()).toBe('alice')
+  expect(cache.getQueryData(['account', 'alice', 'late'])).toBeUndefined()
+  expect(drafts.getItem(draftKey('alice', 'reply'))).toBeNull()
+})
