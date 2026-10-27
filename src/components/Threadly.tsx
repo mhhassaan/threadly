@@ -242,9 +242,18 @@ export function Threadly({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ url: articleUrl }),
       })
-      const data = await response.json()
-      if (!response.ok)
-        throw Error(data.error || 'Could not read this article.')
+      const data: unknown = await response.json()
+      if (!response.ok) {
+        const message =
+          data &&
+          typeof data === 'object' &&
+          'error' in data &&
+          typeof data.error === 'string' &&
+          data.error
+            ? data.error
+            : 'Could not read this article.'
+        throw Error(message)
+      }
       return data as {
         text: string
         title: string
