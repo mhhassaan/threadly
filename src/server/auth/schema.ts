@@ -1,10 +1,11 @@
-// Generated from Better Auth 1.7.14 getAuthTables (SQLite/Drizzle).
+// Better Auth 1.7.14 generated core schema with server-only credential fencing fields.
 import { sqliteTable, text, integer } from 'drizzle-orm/sqlite-core'
 
 export const user = sqliteTable('user', {
   id: text('id').primaryKey().notNull(),
   name: text('name').notNull(),
   email: text('email').notNull().unique(),
+  credentialGeneration: integer('credential_generation').notNull().default(0),
   emailVerified: integer('email_verified', { mode: 'boolean' })
     .notNull()
     .default(false),
@@ -17,6 +18,7 @@ export const session = sqliteTable('session', {
   id: text('id').primaryKey().notNull(),
   expiresAt: integer('expires_at', { mode: 'timestamp_ms' }).notNull(),
   token: text('token').notNull().unique(),
+  credentialGeneration: integer('credential_generation').notNull().default(0),
   createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
   updatedAt: integer('updated_at', { mode: 'timestamp_ms' }).notNull(),
   ipAddress: text('ip_address'),

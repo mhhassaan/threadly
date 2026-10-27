@@ -19,5 +19,5 @@ export async function requireUser(
       'Verify your email to continue',
     )
   const { id, email, name, emailVerified } = result.user
-  return { id, email, name, emailVerified }
+  return { userId: id, email, name, verified: emailVerified }
 }

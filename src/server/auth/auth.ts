@@ -1,4 +1,5 @@
 import { betterAuth } from 'better-auth/minimal'
+import { createAuthMiddleware } from 'better-auth/api'
 import { drizzleAdapter } from 'better-auth/adapters/drizzle'
 import type { Platform } from '../platform'
 import { createDb } from '../data/db'
@@ -54,6 +55,70 @@ export function createAuth(platform: Platform) {
       schema,
       transaction: false,
     }),
+    // Snapshot before the endpoint reads/verifies a credential. The DB trigger is
+    // the final atomic check if reset races the session-create hook itself.
+    hooks: {
+      before: createAuthMiddleware(async (ctx) => {
+        if (
+          ctx.path !== '/sign-in/email' ||
+          typeof ctx.body?.email !== 'string'
+        )
+          return
+        const owner = await platform.db
+          .prepare(
+            'SELECT id, credential_generation FROM "user" WHERE email = ?',
+          )
+          .bind(ctx.body.email.toLowerCase())
+          .first<{ id: string; credential_generation: number }>()
+        return {
+          context: {
+            context: {
+              credentialFence: owner
+                ? { userId: owner.id, generation: owner.credential_generation }
+                : null,
+            },
+          },
+        }
+      }),
+    },
+    databaseHooks: {
+      session: {
+        create: {
+          before: async (session, context) => {
+            const fence = (
+              context?.context as
+                | { credentialFence?: { userId: string; generation: number } }
+                | undefined
+            )?.credentialFence
+            if (
+              context?.path !== '/sign-in/email' ||
+              !fence ||
+              fence.userId !== session.userId
+            )
+              return false
+            const current = await platform.db
+              .prepare('SELECT credential_generation FROM "user" WHERE id = ?')
+              .bind(session.userId)
+              .first<{ credential_generation: number }>()
+            if (current?.credential_generation !== fence.generation)
+              return false
+            return {
+              data: { ...session, credentialGeneration: fence.generation },
+            }
+          },
+        },
+      },
+    },
+    user: {
+      additionalFields: {
+        credentialGeneration: {
+          type: 'number',
+          defaultValue: 0,
+          input: false,
+          returned: false,
+        },
+      },
+    },
     trustedOrigins: [new URL(env.authUrl).origin],
     emailAndPassword: {
       enabled: true,
@@ -74,6 +139,14 @@ export function createAuth(platform: Platform) {
         sendLink(user.email, url, 'Verify your email'),
     },
     session: {
+      additionalFields: {
+        credentialGeneration: {
+          type: 'number',
+          defaultValue: 0,
+          input: false,
+          returned: false,
+        },
+      },
       expiresIn: 60 * 60 * 24 * 7,
       updateAge: 60 * 60 * 24,
       cookieCache: { enabled: false },

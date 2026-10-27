@@ -1,8 +1,8 @@
 export type UserContext = {
-  id: string
+  userId: string
   email: string
   name: string
-  emailVerified: boolean
+  verified: boolean
 }
 
 export class ApiError extends Error {

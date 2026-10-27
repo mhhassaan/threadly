@@ -1,9 +1,10 @@
 import { env } from 'cloudflare:workers'
-import { beforeEach, afterEach, expect, test, vi } from 'vitest'
+import { beforeAll, beforeEach, afterEach, expect, test, vi } from 'vitest'
 import { createAuth } from '../../src/server/auth/auth'
 import { requireUser } from '../../src/server/auth/session'
 import type { Platform } from '../../src/server/platform'
 import migration from '../../drizzle/migrations/0001_auth.sql?raw'
+import fenceMigration from '../../drizzle/migrations/0002_auth_fence.sql?raw'
 import { fetchApp } from './helpers'
 
 const base = 'http://127.0.0.1:4176'
@@ -45,13 +46,17 @@ async function verifiedLogin(person = credentials()) {
   expect(response.ok).toBe(true)
   return { person, cookie: jar(response) }
 }
-beforeEach(async () => {
+beforeAll(async () => {
   for (const statement of migration
     .replace(/^--.*$/gm, '')
     .split(';')
     .map((x) => x.trim())
     .filter(Boolean))
     await env.DB.prepare(statement).run()
+  for (const statement of fenceMigration.split('--> statement-breakpoint'))
+    await env.DB.prepare(statement).run()
+})
+beforeEach(async () => {
   for (const table of [
     'session',
     'account',
@@ -98,8 +103,10 @@ test('verification_required', async () => {
   const request = new Request(`${base}/api/sync`, { headers: { cookie } })
   const owner = await requireUser(request, platform)
   expect(owner.email).toBe(person.email)
+  expect(owner.verified).toBe(true)
+  expect(owner.userId).toEqual(expect.any(String))
   await env.DB.prepare('UPDATE "user" SET email_verified = 0 WHERE id = ?')
-    .bind(owner.id)
+    .bind(owner.userId)
     .run()
   await expect(requireUser(request, platform)).rejects.toMatchObject({
     status: 403,
@@ -110,7 +117,7 @@ test('verification_required', async () => {
     new Request(base, { headers: { cookie: second.cookie } }),
     platform,
   )
-  expect(other.id).not.toBe(owner.id)
+  expect(other.userId).not.toBe(owner.userId)
 })
 
 test('reset_token_single_use', async () => {
@@ -291,4 +298,213 @@ test('auth_http_route', async () => {
     body: JSON.stringify(credentials()),
   })
   expect(mutation.status).toBe(403)
+})
+
+// Pauses exactly where pinned Better Auth has read the old credential but has not issued a session.
+// Distinct auth instances model independent Workers sharing D1; no in-memory lock can satisfy this fence.
+test('reset_fences_old_password_sign_in_across_workers', async () => {
+  const { person, cookie: existingCookie } = await verifiedLogin()
+  const signingIn = createAuth(platform)
+  const context = await signingIn.$context
+  const originalVerify = context.password.verify
+  let resume!: () => void
+  let reachedVerification!: () => void
+  const paused = new Promise<void>((resolve) => (reachedVerification = resolve))
+  const released = new Promise<void>((resolve) => (resume = resolve))
+  context.password.verify = async (input) => {
+    reachedVerification()
+    await released
+    return originalVerify(input)
+  }
+  const pendingSignIn = signingIn.handler(
+    new Request(`${base}/api/auth/sign-in/email`, {
+      method: 'POST',
+      headers: { origin: base, 'content-type': 'application/json' },
+      body: JSON.stringify(person),
+    }),
+  )
+  await paused
+  try {
+    auth = createAuth(platform)
+    await post('request-password-reset', {
+      email: person.email,
+      redirectTo: `${base}/account/reset`,
+    })
+    const resetResponse = await auth.handler(new Request(await link()))
+    const token = new URL(
+      resetResponse.headers.get('location')!,
+    ).searchParams.get('token')
+    const replacement = crypto.randomUUID() + crypto.randomUUID()
+    expect(
+      (await post('reset-password', { token, newPassword: replacement }))
+        .status,
+    ).toBe(200)
+  } finally {
+    resume()
+  }
+  const lateResponse = await pendingSignIn
+  expect(lateResponse.status).toBe(401)
+  expect(jar(lateResponse)).toBe('')
+  for (const cookie of [existingCookie, jar(lateResponse)]) {
+    const freshWorker = createAuth(platform)
+    const sessionResponse = await freshWorker.handler(
+      new Request(`${base}/api/auth/get-session`, { headers: { cookie } }),
+    )
+    expect(sessionResponse.status).toBe(200)
+    expect(Boolean(await sessionResponse.json())).toBe(false)
+    await expect(
+      requireUser(new Request(base, { headers: { cookie } }), platform),
+    ).rejects.toMatchObject({ status: 401, code: 'UNAUTHORIZED' })
+  }
+  expect(
+    (
+      await env.DB.prepare('SELECT count(*) AS count FROM session').first<{
+        count: number
+      }>()
+    )?.count,
+  ).toBe(0)
+})
+
+test('reset_fences_session_inserted_before_password_write', async () => {
+  const { person } = await verifiedLogin()
+  await post('request-password-reset', {
+    email: person.email,
+    redirectTo: `${base}/account/reset`,
+  })
+  const resetResponse = await auth.handler(new Request(await link()))
+  const token = new URL(
+    resetResponse.headers.get('location')!,
+  ).searchParams.get('token')
+  const resetting = createAuth(platform)
+  const context = await resetting.$context
+  const originalUpdate = context.internalAdapter.updatePassword
+  let resume!: () => void
+  let reachedWrite!: () => void
+  const paused = new Promise<void>((resolve) => (reachedWrite = resolve))
+  const released = new Promise<void>((resolve) => (resume = resolve))
+  context.internalAdapter.updatePassword = async (...args) => {
+    reachedWrite()
+    await released
+    return originalUpdate(...args)
+  }
+  const replacement = crypto.randomUUID() + crypto.randomUUID()
+  const pendingReset = resetting.handler(
+    new Request(`${base}/api/auth/reset-password`, {
+      method: 'POST',
+      headers: { origin: base, 'content-type': 'application/json' },
+      body: JSON.stringify({ token, newPassword: replacement }),
+    }),
+  )
+  await paused
+  let cookie = ''
+  try {
+    auth = createAuth(platform)
+    const concurrentSignIn = await post('sign-in/email', person)
+    expect(concurrentSignIn.status).toBe(200)
+    cookie = jar(concurrentSignIn)
+    expect(Boolean(cookie)).toBe(true)
+  } finally {
+    resume()
+  }
+  expect((await pendingReset).status).toBe(200)
+  const freshWorker = createAuth(platform)
+  const session = await freshWorker.handler(
+    new Request(`${base}/api/auth/get-session`, { headers: { cookie } }),
+  )
+  expect(Boolean(await session.json())).toBe(false)
+  await expect(
+    requireUser(new Request(base, { headers: { cookie } }), platform),
+  ).rejects.toMatchObject({ status: 401 })
+  auth = createAuth(platform)
+  expect(
+    (await post('sign-in/email', { ...person, password: replacement })).status,
+  ).toBe(200)
+})
+
+test('credential_generation_is_server_only', async () => {
+  const person = credentials()
+  const signup = await post('sign-up/email', {
+    ...person,
+    credentialGeneration: 999,
+  })
+  expect(signup.status).toBe(200)
+  const signupBody = (await signup.json()) as { user: Record<string, unknown> }
+  expect(Object.hasOwn(signupBody.user, 'credentialGeneration')).toBe(false)
+  expect((await auth.handler(new Request(await link()))).status).toBe(302)
+  const signin = await post('sign-in/email', {
+    ...person,
+    credentialGeneration: 999,
+  })
+  expect(signin.status).toBe(200)
+  const cookie = jar(signin)
+  const response = await auth.handler(
+    new Request(`${base}/api/auth/get-session`, { headers: { cookie } }),
+  )
+  const body = (await response.json()) as {
+    user: Record<string, unknown>
+    session: Record<string, unknown>
+  }
+  expect(Object.hasOwn(body.user, 'credentialGeneration')).toBe(false)
+  expect(Object.hasOwn(body.session, 'credentialGeneration')).toBe(false)
+  const owner = await requireUser(
+    new Request(base, { headers: { cookie } }),
+    platform,
+  )
+  expect(Object.keys(owner).sort()).toEqual([
+    'email',
+    'name',
+    'userId',
+    'verified',
+  ])
+  const generation = await env.DB.prepare(
+    'SELECT u.credential_generation AS user_generation, s.credential_generation AS session_generation FROM "user" u JOIN session s ON s.user_id = u.id WHERE u.id = ?',
+  )
+    .bind(owner.userId)
+    .first()
+  expect(generation).toEqual({ user_generation: 0, session_generation: 0 })
+})
+
+test('d1_atomically_rejects_stale_session_generation', async () => {
+  const { cookie } = await verifiedLogin()
+  const owner = await requireUser(
+    new Request(base, { headers: { cookie } }),
+    platform,
+  )
+  const replacementHash = await (
+    await auth.$context
+  ).password.hash(crypto.randomUUID() + crypto.randomUUID())
+  await env.DB.prepare(
+    'UPDATE account SET password = ? WHERE user_id = ? AND provider_id = ?',
+  )
+    .bind(replacementHash, owner.userId, 'credential')
+    .run()
+  const generation = await env.DB.prepare(
+    'SELECT credential_generation FROM "user" WHERE id = ?',
+  )
+    .bind(owner.userId)
+    .first<{ credential_generation: number }>()
+  expect(generation?.credential_generation).toBe(1)
+  const now = Date.now()
+  await expect(
+    env.DB.prepare(
+      'INSERT INTO session (id, token, user_id, expires_at, created_at, updated_at, credential_generation) VALUES (?, ?, ?, ?, ?, ?, ?)',
+    )
+      .bind(
+        crypto.randomUUID(),
+        crypto.randomUUID(),
+        owner.userId,
+        now + 60000,
+        now,
+        now,
+        0,
+      )
+      .run(),
+  ).rejects.toThrow('Stale credential generation')
+  expect(
+    (
+      await env.DB.prepare('SELECT count(*) AS count FROM session').first<{
+        count: number
+      }>()
+    )?.count,
+  ).toBe(0)
 })
