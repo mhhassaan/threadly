@@ -56,8 +56,24 @@ try {
     404,
   )
   assert.equal((await fetch(base + '/not-a-route')).status, 404)
+  for (const [path, method] of [
+    ['/api/library', 'GET'],
+    ['/api/library', 'POST'],
+    ['/api/threads/00000000-0000-4000-8000-000000000001', 'GET'],
+    ['/api/threads/00000000-0000-4000-8000-000000000001', 'PATCH'],
+    ['/api/threads/00000000-0000-4000-8000-000000000001', 'DELETE'],
+    ['/api/comments', 'POST'],
+  ]) {
+    const response = await fetch(base + path, { method })
+    // Local production preview intentionally has no production email credentials.
+    assert(
+      [401, 503].includes(response.status),
+      `${method} ${path} fails closed`,
+    )
+    assert.equal(response.headers.get('cache-control'), 'private, no-store')
+  }
   console.log(
-    'Passed: production SSR, reader routing, bundled assets, static fonts/brand, API address rejection and not-found handling.',
+    'Passed: production SSR, reader routing, bundled assets, static fonts/brand, API address rejection, private API authentication and not-found handling.',
   )
 } finally {
   await stopPreview(server)

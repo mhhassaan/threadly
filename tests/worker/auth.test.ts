@@ -3,8 +3,7 @@ import { beforeAll, beforeEach, afterEach, expect, test, vi } from 'vitest'
 import { createAuth } from '../../src/server/auth/auth'
 import { requireUser } from '../../src/server/auth/session'
 import type { Platform } from '../../src/server/platform'
-import migration from '../../drizzle/migrations/0001_auth.sql?raw'
-import fenceMigration from '../../drizzle/migrations/0002_auth_fence.sql?raw'
+import { applyAuthMigrations } from './migrations'
 import { fetchApp } from './helpers'
 
 const base = 'http://127.0.0.1:4176'
@@ -47,14 +46,7 @@ async function verifiedLogin(person = credentials()) {
   return { person, cookie: jar(response) }
 }
 beforeAll(async () => {
-  for (const statement of migration
-    .replace(/^--.*$/gm, '')
-    .split(';')
-    .map((x) => x.trim())
-    .filter(Boolean))
-    await env.DB.prepare(statement).run()
-  for (const statement of fenceMigration.split('--> statement-breakpoint'))
-    await env.DB.prepare(statement).run()
+  await applyAuthMigrations(env.DB)
 })
 beforeEach(async () => {
   for (const table of [
