@@ -5,6 +5,9 @@ import {
 } from '../../lib/account-thread'
 import type { Reaction, ThreadRecord } from '../../lib/thread'
 
+// The supported 100k-character source may remain one complete-thought post.
+const maxPostCharacters = 100_000
+
 export function invalid(message = 'Invalid request'): never {
   throw new ApiError(400, 'INVALID_INPUT', message)
 }
@@ -84,7 +87,7 @@ export function threadRecord(value: unknown): ThreadRecord {
   ])
   if (!Array.isArray(v.posts) || v.posts.length < 1 || v.posts.length > 100)
     invalid('Invalid posts')
-  const posts = v.posts.map((p) => string(p, 20_000, false))
+  const posts = v.posts.map((p) => string(p, maxPostCharacters, false))
   let source: ThreadRecord['source'] = null
   if (v.source != null) {
     const s = object(v.source, ['name', 'handle', 'url', 'icon'])
@@ -165,7 +168,10 @@ export function patchThread(value: unknown): PatchThreadInput {
       invalid()
     result.posts = v.posts.map((entry) => {
       const post = object(entry, ['id', 'text'])
-      return { id: uuid(post.id), text: string(post.text, 20_000, false) }
+      return {
+        id: uuid(post.id),
+        text: string(post.text, maxPostCharacters, false),
+      }
     })
     if (new Set(result.posts.map((p) => p.id)).size !== result.posts.length)
       invalid('Duplicate post ID')

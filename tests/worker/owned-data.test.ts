@@ -14,6 +14,7 @@ import {
 } from '../../src/server/data/api'
 import readingMigration from '../../drizzle/migrations/0003_reading.sql?raw'
 import { saveReadProgress, saveThread } from '../../src/server/data/threads'
+import { summarize } from '../../src/lib/summary'
 
 const base = 'http://127.0.0.1:4176'
 let platform: Platform
@@ -509,4 +510,40 @@ test('private_route_reports_unavailable_auth_configuration', async () => {
     message: 'Authentication is not configured',
   })
   expect(response.headers.get('cache-control')).toBe('private, no-store')
+})
+
+// Catches new storage limits rejecting complete thoughts produced by the supported 100k-source flow.
+test('long_complete_thought_summary_roundtrips_and_edits_without_truncation', async () => {
+  const sourceText = 'Observation '.repeat(8300) + 'concludes.'
+  const posts = summarize(sourceText, 'balanced', 'auto')
+  expect(sourceText.length).toBeLessThanOrEqual(100_000)
+  expect(posts).toEqual([sourceText])
+  expect(posts[0].length).toBeGreaterThan(20_000)
+  const input = { ...record(), sourceText, posts, media: [], interactions: {} }
+  const response = await call('/api/library', 'POST', { record: input })
+  expect(response.status).toBe(201)
+  const owned = (await response.json()) as OwnedThread
+  const saved = (await (await call(threadPath(owned))).json()) as ThreadSnapshot
+  expect(saved.thread.record.posts).toEqual([sourceText])
+  expect(saved.thread.posts[0].text).toBe(sourceText)
+  const editedSource = 'Updated observation '.repeat(4900) + 'concludes.'
+  const editedPosts = summarize(editedSource, 'balanced', 'auto')
+  expect(editedSource.length).toBeLessThanOrEqual(100_000)
+  expect(editedPosts).toEqual([editedSource])
+  expect(editedPosts[0].length).toBeGreaterThan(20_000)
+  const edited = await call(threadPath(owned), 'PATCH', {
+    expectedRevision: 1,
+    posts: [{ id: owned.posts[0].id, text: editedPosts[0] }],
+  })
+  expect(edited.status).toBe(200)
+  const updated = (await (
+    await call(threadPath(owned))
+  ).json()) as ThreadSnapshot
+  expect(updated.thread.record.posts).toEqual([editedSource])
+  expect(updated.thread.posts[0]).toMatchObject({
+    id: owned.posts[0].id,
+    text: editedSource,
+    revision: 2,
+  })
+  expect(updated.thread.record.sourceText).toBe(sourceText)
 })
