@@ -1,7 +1,7 @@
 # Threadly: private AI discussions and account sync
 
 Date: 2026-10-27
-Status: Draft for user approval. No product implementation authorized by this document yet.
+Status: Approved by the user on 2026-10-27. Implementation plan requested; execution method and plan review pending. No product implementation has started.
 
 ## Intent
 
