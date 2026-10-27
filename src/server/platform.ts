@@ -5,6 +5,8 @@ export type ServerConfig = {
   authUrl: string
   authSecret: string
   emailTransport: 'capture' | 'resend'
+  dev: boolean
+  devMailUrl: string
   resendFrom: string
   resendApiKey: string
   deepseekApiKey: string
@@ -35,6 +37,8 @@ export const getPlatform = createServerOnlyFn((): Platform => {
       authSecret: bindings.BETTER_AUTH_SECRET ?? '',
       emailTransport:
         bindings.EMAIL_TRANSPORT === 'resend' ? 'resend' : 'capture',
+      dev: import.meta.env.DEV,
+      devMailUrl: 'http://127.0.0.1:4187',
       resendFrom: bindings.RESEND_FROM,
       resendApiKey: bindings.RESEND_API_KEY ?? '',
       deepseekApiKey: bindings.DEEPSEEK_API_KEY ?? '',

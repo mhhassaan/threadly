@@ -15,7 +15,7 @@ export default defineConfig({
     cloudflareTest({ remoteBindings: false, miniflare: workerOptions }),
   ],
   test: {
-    include: ['tests/worker/**/*.test.ts'],
+    include: ['tests/worker/**/*.test.ts', 'tests/unit/**/*.test.ts'],
     globalSetup: ['tests/worker/setup.ts'],
     testTimeout: 30000,
   },

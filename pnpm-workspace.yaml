@@ -7,6 +7,14 @@ minimumReleaseAgeExclude:
   - '@cloudflare/vitest-plugin@1.4.8'
   - miniflare@5.20261023.0-beta
   - wrangler@4.153.0
+  - '@better-auth/core@1.7.14'
+  - '@better-auth/drizzle-adapter@1.7.14'
+  - '@better-auth/kysely-adapter@1.7.14'
+  - '@better-auth/memory-adapter@1.7.14'
+  - '@better-auth/mongo-adapter@1.7.14'
+  - '@better-auth/prisma-adapter@1.7.14'
+  - '@better-auth/telemetry@1.7.14'
+  - better-auth@1.7.14
 allowBuilds:
   esbuild: true
   workerd: true
