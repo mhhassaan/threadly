@@ -3531,3 +3531,104 @@ html[data-motion-input='keyboard'] .source-panes > [role='tabpanel'] {
     height: auto;
   }
 }
+
+/* Account access shares the reader's colors and keeps forms comfortable on touch. */
+.account-page {
+  max-width: 540px;
+  padding-bottom: calc(40px + env(safe-area-inset-bottom, 0px));
+}
+.account-page h1 {
+  font-size: 30px;
+}
+.account-card {
+  padding: 28px;
+  margin: 22px 0;
+}
+.account-panel,
+.account-forms {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.account-panel h3 {
+  font:
+    600 21px/1.3 Manrope,
+    system-ui,
+    sans-serif;
+  margin: 20px 0 16px;
+}
+.account-form fieldset {
+  min-width: 0;
+  padding: 0;
+  margin: 0;
+  border: 0;
+}
+.account-field {
+  display: grid;
+  gap: 7px;
+  margin: 16px 0;
+  font-weight: 500;
+}
+.account-field input {
+  width: 100%;
+  min-width: 0;
+  min-height: 48px;
+  padding: 11px 12px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: var(--paper);
+  color: var(--ink);
+  font-size: 16px;
+}
+.account-field input[aria-invalid='true'] {
+  border-color: #ae413e;
+}
+.account-form .copy-primary {
+  width: 100%;
+  min-height: 46px;
+  margin: 8px 0;
+}
+.account-hint {
+  color: var(--muted);
+  font-size: 12px;
+}
+.account-notice {
+  padding: 12px 14px;
+  background: var(--soft, var(--paper));
+  border: 1px solid var(--line);
+  border-radius: 9px;
+}
+.account-error {
+  color: var(--ink);
+  border-left: 3px solid #ae413e;
+  padding: 8px 12px;
+}
+.account-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 18px;
+  margin-top: 10px;
+}
+.account-links button,
+.account-discard {
+  min-height: 44px;
+  padding: 8px 0;
+  color: var(--green);
+  text-decoration: underline;
+  text-underline-offset: 4px;
+}
+.account-discard {
+  margin-top: 16px;
+}
+.account-back {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+}
+@media (max-width: 480px) {
+  .account-card {
+    padding: 20px;
+  }
+  .app-header nav:has(.account-nav) {
+    gap: 18px;
+  }
+}

@@ -27,8 +27,12 @@ import { Icon, Post, ThreadReplyComposer } from './Post'
 import { AppearancePanel } from './AppearancePanel'
 import { Dialog } from './Dialog'
 import { ExportOptions } from './ExportOptions'
+import { AccountPanel } from '../features/account/AccountPanel'
+import { useAccount } from '../features/account/auth-client'
 type Modal =
-  | { kind: 'library' | 'appearance' | 'about' | 'export' | 'result' }
+  | {
+      kind: 'library' | 'appearance' | 'about' | 'export' | 'result' | 'account'
+    }
   | { kind: 'reply'; index: number }
   | { kind: 'media'; item: Media }
 type ReaderWindow = {
@@ -45,6 +49,7 @@ export function Threadly({
   readerToken?: string
   motion?: string
 }) {
+  const account = useAccount()
   const [selectionMode, setSelectionMode] = useState(false)
   const isReader = readerToken !== undefined
   const queryClient = useQueryClient()
@@ -539,19 +544,21 @@ export function Threadly({
         '/?motion=' + (method.current === 'pointer' ? 'back' : 'none')
   }
   const modalTitle =
-    modal?.kind === 'library'
-      ? 'Your saved threads'
-      : modal?.kind === 'appearance'
-        ? 'Make yourself comfortable'
-        : modal?.kind === 'about'
-          ? 'A little less reading. A lot more clarity.'
-          : modal?.kind === 'export'
-            ? 'Save your thread as an image'
-            : modal?.kind === 'reply'
-              ? 'Your replies to tweet ' + (modal.index + 1)
-              : modal?.kind === 'media'
-                ? 'Image from the article'
-                : 'Your image is ready'
+    modal?.kind === 'account'
+      ? 'Your account'
+      : modal?.kind === 'library'
+        ? 'Your saved threads'
+        : modal?.kind === 'appearance'
+          ? 'Make yourself comfortable'
+          : modal?.kind === 'about'
+            ? 'A little less reading. A lot more clarity.'
+            : modal?.kind === 'export'
+              ? 'Save your thread as an image'
+              : modal?.kind === 'reply'
+                ? 'Your replies to tweet ' + (modal.index + 1)
+                : modal?.kind === 'media'
+                  ? 'Image from the article'
+                  : 'Your image is ready'
   return (
     <>
       <header className="app-header">
@@ -587,6 +594,12 @@ export function Threadly({
           </a>
           <button id="library" onClick={() => setModal({ kind: 'library' })}>
             Saved threads <span id="savedCount">{saved.length}</span>
+          </button>
+          <button
+            className="account-nav"
+            onClick={() => setModal({ kind: 'account' })}
+          >
+            {account.user ? 'Account' : 'Sign in'}
           </button>
         </nav>
         <div className="header-tools">
@@ -1201,7 +1214,9 @@ export function Threadly({
       </div>
       {ready && modal && (
         <Dialog title={modalTitle} onClose={() => setModal(null)}>
-          {modal.kind === 'appearance' ? (
+          {modal.kind === 'account' ? (
+            <AccountPanel />
+          ) : modal.kind === 'appearance' ? (
             <AppearancePanel onClose={() => setModal(null)} />
           ) : modal.kind === 'library' ? (
             saved.length ? (
