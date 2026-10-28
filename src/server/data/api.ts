@@ -2,6 +2,7 @@ import { ApiError } from '../../lib/account-thread'
 import { requireUser } from '../auth/session'
 import type { Platform } from '../platform'
 import { appendHumanComment } from './comments'
+import { importLocalThread } from './import'
 import {
   deleteThread,
   getSnapshot,
@@ -98,7 +99,18 @@ export function handleLibrary(
       return json(await listThreads(platform, user, params.get('cursor')))
     }
     if (request.method !== 'POST') unsupported()
-    const input = object(await body(request, platform), ['record'])
+    const input = object(await body(request, platform), [
+      'record',
+      'migrationId',
+    ])
+    if (input.migrationId !== undefined)
+      return json(
+        await importLocalThread(platform, user, {
+          migrationId: input.migrationId as string,
+          record: threadRecord(input.record),
+        }),
+        201,
+      )
     return json(
       await saveThread(platform, user, threadRecord(input.record), null),
       201,

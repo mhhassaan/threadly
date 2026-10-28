@@ -3597,6 +3597,16 @@ html[data-motion-input='keyboard'] .source-panes > [role='tabpanel'] {
   border: 1px solid var(--line);
   border-radius: 9px;
 }
+.account-sync-status {
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+.account-sync-status p {
+  margin: 6px 0;
+}
 .account-error {
   color: var(--ink);
   border-left: 3px solid #ae413e;

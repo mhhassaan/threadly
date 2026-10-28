@@ -29,6 +29,10 @@ import { Dialog } from './Dialog'
 import { ExportOptions } from './ExportOptions'
 import { AccountPanel } from '../features/account/AccountPanel'
 import { useAccount } from '../features/account/auth-client'
+import { CloudLibrary } from '../features/account/CloudLibrary'
+import { useCloudReader } from '../features/account/useCloudReader'
+import { accountLibraryKey, saveCloudDraft } from '../features/account/library'
+import { draftKey } from '../features/account/auth-state'
 type Modal =
   | {
       kind: 'library' | 'appearance' | 'about' | 'export' | 'result' | 'account'
@@ -42,16 +46,47 @@ type ReaderWindow = {
   pointer: boolean
 }
 const libraryQuery = ['local-library'] as const
-export function Threadly({
-  readerToken,
-  motion,
-}: {
+type ThreadlyProps = {
   readerToken?: string
+  threadId?: string
   motion?: string
-}) {
+}
+export function Threadly(props: ThreadlyProps) {
   const account = useAccount()
+  useEffect(() => {
+    if (props.threadId && !account.user?.verified) {
+      document.documentElement.classList.remove('reader-page')
+      document.title = 'Your private thread — Threadly'
+    }
+  }, [props.threadId, account.user?.id, account.user?.verified])
+  if (props.threadId && !account.user?.verified)
+    return (
+      <main className="dashboard">
+        <section className="panel">
+          <h1>Your private thread</h1>
+          {account.pending ? (
+            <p role="status">Checking your account…</p>
+          ) : (
+            <AccountPanel />
+          )}
+        </section>
+      </main>
+    )
+  return (
+    <ThreadlyView
+      key={props.threadId ? account.user!.id + ':' + props.threadId : 'device'}
+      {...props}
+    />
+  )
+}
+function ThreadlyView({ readerToken, threadId, motion }: ThreadlyProps) {
+  const account = useAccount()
+  const owner = account.user?.verified ? account.user.id : ''
+  const cloud = useCloudReader(owner, threadId)
+  const currentOwner = useRef(owner)
+  currentOwner.current = owner
   const [selectionMode, setSelectionMode] = useState(false)
-  const isReader = readerToken !== undefined
+  const isReader = readerToken !== undefined || !!threadId
   const queryClient = useQueryClient()
   const [ready, setReady] = useState(false),
     [mode, setMode] = useState<Mode>('text'),
@@ -62,7 +97,7 @@ export function Threadly({
     [fileName, setFileName] = useState(''),
     [error, setError] = useState(''),
     [busy, setBusy] = useState(false),
-    [record, setRecord] = useState<ThreadRecord | null>(null),
+    [deviceRecord, setRecord] = useState<ThreadRecord | null>(null),
     [selected, setSelected] = useState<Set<number>>(new Set()),
     [notice, setNotice] = useState<{
       blocked: boolean
@@ -70,7 +105,7 @@ export function Threadly({
     } | null>(null),
     [toast, setToast] = useState(''),
     [modal, setModal] = useState<Modal | null>(null),
-    [readerProblem, setReaderProblem] = useState(''),
+    [deviceReaderProblem, setReaderProblem] = useState(''),
     [drag, setDrag] = useState(false),
     [exportBusy, setExportBusy] = useState(false),
     [exportResult, setExportResult] = useState<{
@@ -78,6 +113,13 @@ export function Threadly({
       filename: string
       png: boolean
     } | null>(null)
+  const record = threadId ? cloud.record : deviceRecord
+  const readerProblem =
+    threadId && cloud.query.error
+      ? cloud.query.error.message
+      : deviceReaderProblem
+  const latestOwner = useRef(''),
+    latestCloud = useRef<string | null>(null)
   const method = useRef('keyboard'),
     keyboardUsed = useRef(false),
     arrivalPlayed = useRef(false),
@@ -97,6 +139,26 @@ export function Threadly({
     enabled: ready,
   })
   const saved = library.data || []
+  useEffect(() => {
+    if (latestOwner.current && latestOwner.current !== owner) {
+      latest.current = null
+      latestCloud.current = null
+      setNotice(null)
+    }
+    if (owner && !threadId) {
+      try {
+        const pending = JSON.parse(
+          sessionStorage.getItem(draftKey(owner, 'generated')) || 'null',
+        )
+        if (validRecord(pending)) {
+          latest.current = pending
+          latestOwner.current = owner
+          latestCloud.current = null
+          setNotice({ blocked: true, pointer: false })
+        }
+      } catch {}
+    }
+  }, [owner])
   const notify = useCallback((message: string) => {
     setToast(message)
     if (timer.current) clearTimeout(timer.current)
@@ -166,7 +228,7 @@ export function Threadly({
     document.addEventListener('keydown', keyboard, true)
     window.addEventListener('storage', storage)
     window.addEventListener('message', message)
-    if (isReader) {
+    if (readerToken) {
       let cached
       try {
         cached = JSON.parse(
@@ -198,7 +260,7 @@ export function Threadly({
     if (record) {
       recordRef.current = record
       document.title = record.title + ' — Threadly'
-      if (readerToken)
+      if (readerToken && !threadId)
         try {
           sessionStorage.setItem(cacheKey(readerToken), JSON.stringify(record))
         } catch {}
@@ -283,10 +345,38 @@ export function Threadly({
   }
   function openRecord(data: ThreadRecord) {
     latest.current = data
+    latestOwner.current = ''
+    latestCloud.current = null
     const entry = launch(data)
     setModal(null)
     if (isReader && !entry.win) accept(data)
     else setNotice({ blocked: !entry.win, pointer: entry.pointer })
+  }
+  async function openGenerated() {
+    const data = latest.current
+    if (!data) return
+    if (!latestOwner.current) {
+      openRecord(data)
+      return
+    }
+    if (latestOwner.current !== currentOwner.current) return
+    if (latestCloud.current) {
+      window.open('/?thread=' + latestCloud.current, '_blank')
+      return
+    }
+    const result = await saveCloudDraft(owner, data, null)
+    if (currentOwner.current !== owner) return
+    if (result.error) {
+      setError(result.error.message)
+      return
+    }
+    latestCloud.current = result.snapshot!.thread.id
+    try {
+      sessionStorage.removeItem(draftKey(owner, 'generated'))
+    } catch {}
+    void queryClient.invalidateQueries({ queryKey: accountLibraryKey(owner) })
+    window.open('/?thread=' + latestCloud.current, '_blank')
+    setError('')
   }
   async function generate() {
     if (busyRef.current) return
@@ -310,7 +400,11 @@ export function Threadly({
     busyRef.current = true
     setBusy(true)
     setNotice(null)
-    const entry = launch()
+    const generationOwner = owner
+    const entry = generationOwner ? null : launch()
+    const accountWindow = generationOwner
+      ? window.open('about:blank', '_blank')
+      : null
     try {
       let sourceText = text.trim(),
         title = sourceText.split('\n')[0].slice(0, 100),
@@ -356,19 +450,60 @@ export function Threadly({
         sourceText,
       }
       latest.current = next
-      entry.data = next
-      if (entry.win && !entry.win.closed)
-        entry.win.postMessage(
-          { type: 'threadly:result', token: entry.token, record: next },
-          location.origin,
-        )
-      setNotice({
-        blocked: !entry.win || entry.win.closed,
-        pointer: entry.pointer,
-      })
+      latestOwner.current = generationOwner
+      latestCloud.current = null
+      if (generationOwner) {
+        if (currentOwner.current !== generationOwner) {
+          latest.current = null
+          accountWindow?.close()
+          return
+        }
+        try {
+          sessionStorage.setItem(
+            draftKey(generationOwner, 'generated'),
+            JSON.stringify(next),
+          )
+        } catch {}
+        const result = await saveCloudDraft(generationOwner, next, null)
+        if (currentOwner.current !== generationOwner) {
+          latest.current = null
+          accountWindow?.close()
+          return
+        }
+        if (result.error) {
+          accountWindow?.close()
+          setNotice({ blocked: true, pointer: method.current === 'pointer' })
+          throw result.error
+        }
+        latestCloud.current = result.snapshot!.thread.id
+        try {
+          sessionStorage.removeItem(draftKey(generationOwner, 'generated'))
+        } catch {}
+        void queryClient.invalidateQueries({
+          queryKey: accountLibraryKey(generationOwner),
+        })
+        if (accountWindow)
+          accountWindow.location.replace('/?thread=' + latestCloud.current)
+        setNotice({
+          blocked: !accountWindow,
+          pointer: method.current === 'pointer',
+        })
+      } else if (entry) {
+        entry.data = next
+        if (entry.win && !entry.win.closed)
+          entry.win.postMessage(
+            { type: 'threadly:result', token: entry.token, record: next },
+            location.origin,
+          )
+        setNotice({
+          blocked: !entry.win || entry.win.closed,
+          pointer: entry.pointer,
+        })
+      }
       notify('Your thread is ready')
     } catch (e) {
-      entry.win?.close()
+      entry?.win?.close()
+      accountWindow?.close()
       setError(
         e instanceof Error
           ? e.message
@@ -407,6 +542,10 @@ export function Threadly({
     }
   }
   function updateRecord(next: ThreadRecord, ensureSaved = false) {
+    if (threadId) {
+      cloud.edit(next)
+      return
+    }
     recordRef.current = next
     setRecord(next)
     const items = loadLibrary(),
@@ -417,6 +556,10 @@ export function Threadly({
     } else if (ensureSaved) storeLibrary([next, ...items])
   }
   function save() {
+    if (threadId) {
+      void cloud.save()
+      return
+    }
     if (!record) return
     const items = loadLibrary()
     if (items.some((item) => item.posts.join('') === record.posts.join(''))) {
@@ -439,6 +582,10 @@ export function Threadly({
       { ...record, interactions: { ...record.interactions, [index]: state } },
       key === 'bookmarked' && !!state.bookmarked,
     )
+    if (threadId) {
+      notify('Reaction kept in your account draft. Select Save changes.')
+      return
+    }
     if (key === 'reposted')
       notify(
         state.reposted
@@ -896,10 +1043,12 @@ export function Threadly({
                   id="reopenReader"
                   className="secondary"
                   onClick={() => {
-                    if (latest.current) openRecord(latest.current)
+                    void openGenerated()
                   }}
                 >
-                  Open thread ↗
+                  {latestOwner.current && !latestCloud.current
+                    ? 'Retry account save'
+                    : 'Open thread ↗'}
                 </button>
               </div>
             )}
@@ -964,6 +1113,36 @@ export function Threadly({
             className="reader panel"
             aria-label="Twitter-style reading thread"
           >
+            {threadId && (
+              <div className="account-sync-status" role="status">
+                {cloud.draft
+                  ? 'Unsaved account draft. Select Save changes when ready.'
+                  : 'Private account thread'}
+                {cloud.query.error && (
+                  <p>
+                    Connection unavailable. Reading the last cached version.{' '}
+                    <button onClick={() => void cloud.query.refetch()}>
+                      Retry reading
+                    </button>
+                  </p>
+                )}
+                {cloud.error && <p role="alert">{cloud.error}</p>}
+                {cloud.draft && (
+                  <>
+                    <button
+                      className="secondary"
+                      disabled={cloud.busy}
+                      onClick={() => void cloud.save()}
+                    >
+                      Save changes
+                    </button>{' '}
+                    <button disabled={cloud.busy} onClick={cloud.discard}>
+                      Discard draft and reload
+                    </button>
+                  </>
+                )}
+              </div>
+            )}
             <div className="reader-toolbar">
               <a
                 className="thread-back"
@@ -1119,10 +1298,35 @@ export function Threadly({
                         onExport={(i) => void exportImages([i])}
                         onImage={(item) => setModal({ kind: 'media', item })}
                       />
+                      {threadId && (
+                        <button
+                          className="text-button"
+                          disabled={cloud.busy}
+                          onClick={() => {
+                            cloud.edit(
+                              record,
+                              cloud.query.data?.thread.posts[i].id,
+                            )
+                            void cloud.save()
+                          }}
+                        >
+                          {cloud.readPostId ===
+                          cloud.query.data?.thread.posts[i].id
+                            ? 'Read through here'
+                            : 'Mark read through post ' + (i + 1)}
+                        </button>
+                      )}
                       {i === 0 && (
                         <>
                           <ThreadReplyComposer
+                            storageKey={
+                              threadId
+                                ? draftKey(owner, 'reply:' + threadId + ':0')
+                                : undefined
+                            }
+                            privateReply={!!threadId}
                             onReply={(value) => {
+                              if (threadId) return cloud.reply(0, value)
                               const state: Reaction = record
                                 .interactions[0] || { replies: [] }
                               updateRecord(
@@ -1150,7 +1354,11 @@ export function Threadly({
                           {!!record.interactions[0]?.replies?.length && (
                             <div
                               className="thread-local-replies"
-                              aria-label="Your local replies"
+                              aria-label={
+                                threadId
+                                  ? 'Your private replies'
+                                  : 'Your local replies'
+                              }
                             >
                               {record.interactions[0].replies.map(
                                 (reply, index) => (
@@ -1160,7 +1368,11 @@ export function Threadly({
                                     </div>
                                     <div>
                                       <strong>
-                                        You <span>@you · local</span>
+                                        You{' '}
+                                        <span>
+                                          @you ·{' '}
+                                          {threadId ? 'private' : 'local'}
+                                        </span>
                                       </strong>
                                       <p>{reply.text}</p>
                                     </div>
@@ -1219,38 +1431,43 @@ export function Threadly({
           ) : modal.kind === 'appearance' ? (
             <AppearancePanel onClose={() => setModal(null)} />
           ) : modal.kind === 'library' ? (
-            saved.length ? (
-              saved.map((item) => (
-                <div className="saved-item" key={item.id}>
-                  <button
-                    className="saved-open"
-                    onClick={() => openRecord(item)}
-                  >
-                    {item.title}
-                    <small>
-                      {item.posts.length} tweets ·{' '}
-                      {item.date || 'Saved on this device'}
-                    </small>
-                  </button>
-                  <button
-                    className="delete-saved"
-                    aria-label={'Delete saved thread ' + item.title}
-                    onClick={() =>
-                      storeLibrary(
-                        loadLibrary().filter((s) => s.id !== item.id),
-                      )
-                    }
-                  >
-                    ×
-                  </button>
-                </div>
-              ))
-            ) : (
-              <p>
-                Your reading list starts here. Save a thread from its reading
-                window to find it here later. Threads stay on this device.
-              </p>
-            )
+            <>
+              {owner && (
+                <CloudLibrary key={owner} owner={owner} local={saved} />
+              )}
+              {saved.length ? (
+                saved.map((item) => (
+                  <div className="saved-item" key={item.id}>
+                    <button
+                      className="saved-open"
+                      onClick={() => openRecord(item)}
+                    >
+                      {item.title}
+                      <small>
+                        {item.posts.length} tweets ·{' '}
+                        {item.date || 'Saved on this device'}
+                      </small>
+                    </button>
+                    <button
+                      className="delete-saved"
+                      aria-label={'Delete saved thread ' + item.title}
+                      onClick={() =>
+                        storeLibrary(
+                          loadLibrary().filter((s) => s.id !== item.id),
+                        )
+                      }
+                    >
+                      ×
+                    </button>
+                  </div>
+                ))
+              ) : (
+                <p>
+                  Your reading list starts here. Save a thread from its reading
+                  window to find it here later. Threads stay on this device.
+                </p>
+              )}
+            </>
           ) : modal.kind === 'about' ? (
             <>
               <p>
@@ -1272,8 +1489,10 @@ export function Threadly({
                 PNG exports include available static images.
               </p>
               <p>
-                Pasted text stays in your browser. Article links and images are
-                fetched by the server. Saved threads stay on this device.
+                Guest saved threads stay on this device. New threads created in
+                a verified account are saved privately across devices. Importing
+                existing device threads is your choice. Article links and images
+                are fetched by the server.
               </p>
             </>
           ) : modal.kind === 'reply' && record ? (
@@ -1281,7 +1500,13 @@ export function Threadly({
               key={record.id + modal.index}
               record={record}
               index={modal.index}
+              storageKey={
+                threadId
+                  ? draftKey(owner, 'reply:' + threadId + ':' + modal.index)
+                  : undefined
+              }
               onReply={(value) => {
+                if (threadId) return cloud.reply(modal.index, value)
                 const state: Reaction = record.interactions[modal.index] || {
                   replies: [],
                 }
@@ -1357,17 +1582,27 @@ function Replies({
   record,
   index,
   onReply,
+  storageKey,
 }: {
   record: ThreadRecord
   index: number
-  onReply: (text: string) => void
+  onReply: (text: string) => void | Promise<boolean>
+  storageKey?: string
 }) {
-  const [value, setValue] = useState('')
+  const [value, setValue] = useState(() => {
+    try {
+      return storageKey ? sessionStorage.getItem(storageKey) || '' : ''
+    } catch {
+      return ''
+    }
+  })
+  const [sending, setSending] = useState(false)
   return (
     <>
       <p className="dialog-description">
-        A space for your thoughts. Replies are saved on this device and are not
-        published to Twitter/X.
+        {storageKey
+          ? 'Replies are saved privately in your account. Unsent drafts stay in this tab until you retry.'
+          : 'A space for your thoughts. Replies are saved on this device and are not published to Twitter/X.'}
       </p>
       <blockquote className="reply-quote">{record.posts[index]}</blockquote>
       <div className="local-replies">
@@ -1380,11 +1615,19 @@ function Replies({
       </div>
       <form
         className="reply-form"
-        onSubmit={(e) => {
+        onSubmit={async (e) => {
           e.preventDefault()
           if (value.trim()) {
-            onReply(value.trim())
-            setValue('')
+            setSending(true)
+            const saved = await onReply(value.trim())
+            setSending(false)
+            if (saved !== false) {
+              setValue('')
+              if (storageKey)
+                try {
+                  sessionStorage.removeItem(storageKey)
+                } catch {}
+            }
           }
         }}
       >
@@ -1392,13 +1635,24 @@ function Replies({
         <textarea
           id="replyText"
           maxLength={2000}
+          disabled={sending}
           placeholder="What does this idea make you think of?"
           required
           data-autofocus
           value={value}
-          onChange={(e) => setValue(e.target.value)}
+          onChange={(e) => {
+            setValue(e.target.value)
+            if (storageKey)
+              try {
+                sessionStorage.setItem(storageKey, e.target.value)
+              } catch {}
+          }}
         />
-        <button className="copy-primary" type="submit" disabled={!value.trim()}>
+        <button
+          className="copy-primary"
+          type="submit"
+          disabled={!value.trim() || sending}
+        >
           Add reply
         </button>
       </form>

@@ -66,6 +66,16 @@ export function mapAccountUser(
     ? { id: user.id, name: user.name, verified: user.emailVerified }
     : null
 }
+// Only a previously confirmed in-memory identity can retain cached reading when
+// the network is unavailable. A server rejection always closes that view.
+export function resolveSessionUser(
+  user: Parameters<typeof mapAccountUser>[0],
+  error: { status?: number } | null | undefined,
+  confirmed: AccountUser | null,
+): AccountUser | null {
+  if (!error) return mapAccountUser(user)
+  return !error.status || error.status >= 500 ? confirmed : null
+}
 export function validateAuthForm(
   mode: FormMode,
   fields: AuthFields,

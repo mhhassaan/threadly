@@ -38,7 +38,8 @@ export default async function setup(project: TestProject) {
     else server.kill('SIGTERM')
   }
   try {
-    for (let i = 0; i < 300; i++) {
+    // Cold Workers SSR dependency optimization can take several minutes on Windows.
+    for (let i = 0; i < 1200; i++) {
       if (server.exitCode !== null)
         throw new Error(`Test app exited: ${output}`)
       try {

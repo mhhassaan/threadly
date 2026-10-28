@@ -9,7 +9,7 @@ import {
 } from 'react'
 import type { ReactNode } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
-import { createAccountBoundary, mapAccountUser } from './auth-state'
+import { createAccountBoundary, resolveSessionUser } from './auth-state'
 import { createAccountTransitions } from './account-transitions'
 import type { AccountUser } from './auth-state'
 export { clearAccountCache, draftKey } from './auth-state'
@@ -41,7 +41,13 @@ export function AccountProvider({ children }: { children: ReactNode }) {
   > | null>(null)
   const [appliedOwner, setAppliedOwner] = useState<string | null>(null)
   const [expired, setExpired] = useState(false)
-  const user = session.error ? null : mapAccountUser(session.data?.user)
+  const confirmed = useRef<AccountUser | null>(null)
+  const [rejectedSession, setRejectedSession] = useState<string | null>(null)
+  const sessionId = session.data?.session.id ?? null
+  const user =
+    rejectedSession && rejectedSession === sessionId
+      ? null
+      : resolveSessionUser(session.data?.user, session.error, confirmed.current)
   const id = user?.id ?? null
   useEffect(() => {
     let storage: Storage | undefined
@@ -66,16 +72,30 @@ export function AccountProvider({ children }: { children: ReactNode }) {
       try {
         const message = JSON.parse(event.newValue)
         if (typeof message.userId === 'string') {
-          boundary.current?.logout(message.userId)
-          void session.refetch()
+          void transitions.current?.remoteLogout(message.userId, () =>
+            session.refetch(),
+          )
         }
       } catch {}
     }
     window.addEventListener('storage', onLogout)
-    return () => window.removeEventListener('storage', onLogout)
-  }, [client])
+    const onExpired = (event: Event) => {
+      if ((event as CustomEvent<{ owner?: string }>).detail?.owner !== id)
+        return
+      confirmed.current = null
+      setRejectedSession(sessionId)
+      transitions.current?.apply(null, null)
+      void session.refetch()
+    }
+    window.addEventListener('threadly:session-expired', onExpired)
+    return () => {
+      window.removeEventListener('storage', onLogout)
+      window.removeEventListener('threadly:session-expired', onExpired)
+    }
+  }, [client, sessionId, id])
   useEffect(() => {
     if (session.isPending) return
+    if (!session.error) confirmed.current = user
     transitions.current?.apply(id, session.data?.session.id ?? null)
   }, [id, session.isPending, session.error, session.data])
   const value: AccountStatus = {

@@ -19,6 +19,23 @@ export function createAccountTransitions(boundary: Boundary, view: View) {
     logoutOwner = null
   }
   return {
+    async remoteLogout(id: string, refetch: () => Promise<void>) {
+      if (id !== boundary.owner() && id !== identity) {
+        boundary.logout(id)
+        return
+      }
+      const started = ++generation
+      logoutOwner = id
+      boundary.logout(id)
+      view.applied(null)
+      view.expired(false)
+      try {
+        await refetch()
+      } catch {
+        /* Remain hidden until a new session. */
+      }
+      if (started === generation) finishCleanup()
+    },
     apply(id: string | null, nextSessionId: string | null) {
       // Refreshing the same session must not re-expose consumers during logout.
       if (initialized && identity === id && sessionId === nextSessionId) return

@@ -304,18 +304,37 @@ export function Post({
 }
 export function ThreadReplyComposer({
   onReply,
+  storageKey,
+  privateReply,
 }: {
-  onReply: (text: string) => void
+  onReply: (text: string) => void | Promise<boolean>
+  storageKey?: string
+  privateReply?: boolean
 }) {
-  const [value, setValue] = useState('')
+  const [value, setValue] = useState(() => {
+    try {
+      return storageKey ? sessionStorage.getItem(storageKey) || '' : ''
+    } catch {
+      return ''
+    }
+  })
+  const [sending, setSending] = useState(false)
   return (
     <form
       className="thread-reply-composer"
-      onSubmit={(e) => {
+      onSubmit={async (e) => {
         e.preventDefault()
         if (value.trim()) {
-          onReply(value.trim())
-          setValue('')
+          setSending(true)
+          const saved = await onReply(value.trim())
+          setSending(false)
+          if (saved !== false) {
+            setValue('')
+            if (storageKey)
+              try {
+                sessionStorage.removeItem(storageKey)
+              } catch {}
+          }
         }
       }}
     >
@@ -330,15 +349,24 @@ export function ThreadReplyComposer({
         placeholder="Post your reply"
         aria-describedby="threadReplyHint"
         maxLength={2000}
+        disabled={sending}
         rows={1}
         value={value}
-        onChange={(e) => setValue(e.target.value)}
+        onChange={(e) => {
+          setValue(e.target.value)
+          if (storageKey)
+            try {
+              sessionStorage.setItem(storageKey, e.target.value)
+            } catch {}
+        }}
       />
-      <button type="submit" disabled={!value.trim()}>
+      <button type="submit" disabled={!value.trim() || sending}>
         Reply
       </button>
       <span id="threadReplyHint" className="sr-only">
-        Replies are saved on this device and are not posted to X.
+        {privateReply
+          ? 'Replies are saved privately in your account. Failed replies stay editable until you retry.'
+          : 'Replies are saved on this device and are not posted to X.'}
       </span>
     </form>
   )
