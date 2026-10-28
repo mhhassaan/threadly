@@ -13,6 +13,7 @@ import {
 import {
   humanComment,
   invalid,
+  legacyThreadRecord,
   object,
   patchThread,
   threadRecord,
@@ -107,7 +108,7 @@ export function handleLibrary(
       return json(
         await importLocalThread(platform, user, {
           migrationId: input.migrationId as string,
-          record: threadRecord(input.record),
+          record: legacyThreadRecord(input.record),
         }),
         201,
       )

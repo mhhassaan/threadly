@@ -6,7 +6,7 @@ import {
 import type { ThreadRecord } from '../../lib/thread'
 import type { Platform } from '../platform'
 import { getSnapshot, requireVerified } from './threads'
-import { invalid, threadRecord, uuid } from './validation'
+import { invalid, legacyThreadRecord, uuid } from './validation'
 
 // A single D1 batch commits the thread, all posts/replies and the resume marker.
 // The marker is owner scoped, so importing on another account cannot claim it.
@@ -17,7 +17,7 @@ export async function importLocalThread(
 ): Promise<OwnedThread> {
   requireVerified(u)
   const migrationId = uuid(input.migrationId),
-    legacy = threadRecord(input.record)
+    legacy = legacyThreadRecord(input.record)
   const existing = () =>
     p.db
       .prepare(
@@ -82,23 +82,23 @@ export async function importLocalThread(
         )
         .bind(post.id, post.text, post.position, id, u.userId),
     )
-  replies.forEach((reply, index) =>
+  // Bounded JSON payloads keep each statement at three bindings and constant SQL
+  // size, regardless of reply count (D1 permits 100 bindings / 100KB SQL).
+  for (let offset = 0; offset < replies.length; offset += 100) {
+    const chunk = replies
+      .slice(offset, offset + 100)
+      .map((reply, index) => ({ ...reply, sequence: offset + index + 1 }))
     statements.push(
       p.db
         .prepare(
-          "INSERT INTO comments (id, thread_id, post_id, owner_id, parent_id, author_kind, author_id, text, sequence, created_at) SELECT ?, id, ?, owner_id, NULL, 'human', owner_id, ?, ?, ? FROM owned_threads WHERE id = ? AND owner_id = ?",
+          `INSERT INTO comments (id, thread_id, post_id, owner_id, parent_id, author_kind, author_id, text, sequence, created_at)
+       SELECT json_extract(reply.value, '$.id'), thread.id, json_extract(reply.value, '$.postId'), thread.owner_id, NULL, 'human', thread.owner_id,
+         json_extract(reply.value, '$.text'), json_extract(reply.value, '$.sequence'), json_extract(reply.value, '$.date')
+       FROM owned_threads AS thread, json_each(?) AS reply WHERE thread.id = ? AND thread.owner_id = ?`,
         )
-        .bind(
-          reply.id,
-          reply.postId,
-          reply.text,
-          index + 1,
-          reply.date,
-          id,
-          u.userId,
-        ),
-    ),
-  )
+        .bind(JSON.stringify(chunk), id, u.userId),
+    )
+  }
   statements.push(
     p.db
       .prepare(

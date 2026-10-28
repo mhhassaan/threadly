@@ -6,6 +6,8 @@ import { requireUser } from '../../src/server/auth/session'
 import type { Platform } from '../../src/server/platform'
 import type { OwnedThread, ThreadSnapshot } from '../../src/lib/account-thread'
 import type { ThreadRecord } from '../../src/lib/thread'
+import { validRecord } from '../../src/lib/thread'
+import { importLocalThread } from '../../src/server/data/import'
 import {
   handleLibrary,
   handleThread,
@@ -147,6 +149,82 @@ beforeEach(async () => {
   ).userId
 })
 afterEach(() => vi.restoreAllMocks())
+
+test('101 guest replies migrate exactly once and resume reaches later records', async () => {
+  const legacy = record(),
+    migrationId = crypto.randomUUID()
+  legacy.interactions['0'].replies = Array.from({ length: 101 }, (_, i) => ({
+    text: `Original guest reply ${i + 1}`,
+    date: `2026-10-01T00:${String(i % 60).padStart(2, '0')}:00.000Z`,
+  }))
+  const original = structuredClone(legacy)
+  expect(validRecord(legacy)).toBe(true)
+  expect((await call('/api/library', 'POST', { record: legacy })).status).toBe(
+    400,
+  )
+  const first = await call('/api/library', 'POST', {
+    record: legacy,
+    migrationId,
+  })
+  expect(first.status).toBe(201)
+  const imported = (await first.json()) as OwnedThread
+  const snapshot = (await (
+    await call(threadPath(imported))
+  ).json()) as ThreadSnapshot
+  expect(
+    snapshot.comments.map((comment) => ({
+      text: comment.text,
+      date: comment.createdAt,
+    })),
+  ).toEqual(original.interactions['0'].replies)
+  expect(
+    snapshot.comments.every(
+      (comment) =>
+        comment.postId === imported.posts[0].id &&
+        comment.authorKind === 'human',
+    ),
+  ).toBe(true)
+  expect(new Set(snapshot.comments.map((comment) => comment.id)).size).toBe(101)
+  expect(imported.record.interactions['0'].replies).toEqual([])
+  const later = record()
+  for (const input of [
+    { record: legacy, migrationId },
+    { record: legacy, migrationId: crypto.randomUUID() },
+    { record: later, migrationId: crypto.randomUUID() },
+  ]) {
+    expect((await call('/api/library', 'POST', input)).status).toBe(201)
+  }
+  const resumed = (await (
+    await call(threadPath(imported))
+  ).json()) as ThreadSnapshot
+  expect(resumed.thread.posts).toEqual(imported.posts)
+  expect(resumed.comments).toEqual(snapshot.comments)
+  expect(
+    ((await (await call('/api/library')).json()) as { threads: OwnedThread[] })
+      .threads,
+  ).toHaveLength(2)
+  expect(legacy).toEqual(original)
+})
+
+test('legacy import bounds UTF-8 bytes even when called outside the HTTP handler', async () => {
+  const legacy = record()
+  legacy.sourceText = '界'.repeat(400_000)
+  const user = await requireUser(
+    new Request(base, { headers: { cookie: alice } }),
+    platform,
+  )
+  const input = { record: legacy, migrationId: crypto.randomUUID() }
+  await expect(importLocalThread(platform, user, input)).rejects.toMatchObject({
+    status: 413,
+    code: 'BODY_TOO_LARGE',
+  })
+  expect((await call('/api/library', 'POST', input)).status).toBe(413)
+  expect(
+    await env.DB.prepare('SELECT COUNT(*) AS count FROM owned_threads').first(
+      'count',
+    ),
+  ).toBe(0)
+})
 
 // Removing route authentication would expose the private library.
 // Dropping the migration key or importing replies twice must fail this test.

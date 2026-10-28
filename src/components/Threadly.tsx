@@ -28,6 +28,7 @@ import { AppearancePanel } from './AppearancePanel'
 import { Dialog } from './Dialog'
 import { ExportOptions } from './ExportOptions'
 import { AccountPanel } from '../features/account/AccountPanel'
+import { Replies } from './Replies'
 import { useAccount } from '../features/account/auth-client'
 import { CloudLibrary } from '../features/account/CloudLibrary'
 import { useCloudReader } from '../features/account/useCloudReader'
@@ -1575,87 +1576,6 @@ function ThreadlyView({ readerToken, threadId, motion }: ThreadlyProps) {
           )}
         </Dialog>
       )}
-    </>
-  )
-}
-function Replies({
-  record,
-  index,
-  onReply,
-  storageKey,
-}: {
-  record: ThreadRecord
-  index: number
-  onReply: (text: string) => void | Promise<boolean>
-  storageKey?: string
-}) {
-  const [value, setValue] = useState(() => {
-    try {
-      return storageKey ? sessionStorage.getItem(storageKey) || '' : ''
-    } catch {
-      return ''
-    }
-  })
-  const [sending, setSending] = useState(false)
-  return (
-    <>
-      <p className="dialog-description">
-        {storageKey
-          ? 'Replies are saved privately in your account. Unsent drafts stay in this tab until you retry.'
-          : 'A space for your thoughts. Replies are saved on this device and are not published to Twitter/X.'}
-      </p>
-      <blockquote className="reply-quote">{record.posts[index]}</blockquote>
-      <div className="local-replies">
-        {record.interactions[index]?.replies?.map((r, i) => (
-          <article key={i}>
-            <strong>You</strong>
-            <p>{r.text}</p>
-          </article>
-        ))}
-      </div>
-      <form
-        className="reply-form"
-        onSubmit={async (e) => {
-          e.preventDefault()
-          if (value.trim()) {
-            setSending(true)
-            const saved = await onReply(value.trim())
-            setSending(false)
-            if (saved !== false) {
-              setValue('')
-              if (storageKey)
-                try {
-                  sessionStorage.removeItem(storageKey)
-                } catch {}
-            }
-          }
-        }}
-      >
-        <label htmlFor="replyText">Add a reply</label>
-        <textarea
-          id="replyText"
-          maxLength={2000}
-          disabled={sending}
-          placeholder="What does this idea make you think of?"
-          required
-          data-autofocus
-          value={value}
-          onChange={(e) => {
-            setValue(e.target.value)
-            if (storageKey)
-              try {
-                sessionStorage.setItem(storageKey, e.target.value)
-              } catch {}
-          }}
-        />
-        <button
-          className="copy-primary"
-          type="submit"
-          disabled={!value.trim() || sending}
-        >
-          Add reply
-        </button>
-      </form>
     </>
   )
 }

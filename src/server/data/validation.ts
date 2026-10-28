@@ -49,6 +49,13 @@ export function interactions(
   value: unknown,
   postCount: number,
 ): Record<string, Reaction> {
+  return parseInteractions(value, postCount, 100)
+}
+function parseInteractions(
+  value: unknown,
+  postCount: number,
+  maxReplies: number,
+): Record<string, Reaction> {
   if (!value || typeof value !== 'object' || Array.isArray(value)) invalid()
   const result: Record<string, Reaction> = {}
   for (const [key, entry] of Object.entries(value)) {
@@ -63,7 +70,10 @@ export function interactions(
     for (const field of ['liked', 'reposted', 'bookmarked'])
       if (reaction[field] !== undefined && typeof reaction[field] !== 'boolean')
         invalid()
-    if (!Array.isArray(reaction.replies) || reaction.replies.length > 100)
+    if (
+      !Array.isArray(reaction.replies) ||
+      reaction.replies.length > maxReplies
+    )
       invalid()
     const replies = reaction.replies.map((v) => {
       const r = object(v, ['text', 'date'])
@@ -74,6 +84,20 @@ export function interactions(
   return result
 }
 export function threadRecord(value: unknown): ThreadRecord {
+  return parseThreadRecord(value, 100)
+}
+export function legacyThreadRecord(value: unknown): ThreadRecord {
+  // Device replies have no count cap. Bound the entire legacy input instead;
+  // normal cloud writes retain their smaller embedded-reply limit.
+  if (new TextEncoder().encode(JSON.stringify(value)).byteLength > 1_048_576)
+    throw new ApiError(
+      413,
+      'BODY_TOO_LARGE',
+      'Local thread is too large to import',
+    )
+  return parseThreadRecord(value, Infinity)
+}
+function parseThreadRecord(value: unknown, maxReplies: number): ThreadRecord {
   const v = object(value, [
     'id',
     'title',
@@ -146,7 +170,11 @@ export function threadRecord(value: unknown): ThreadRecord {
     sourceUrl: string(v.sourceUrl ?? '', 4000),
     source,
     media,
-    interactions: interactions(v.interactions ?? {}, posts.length),
+    interactions: parseInteractions(
+      v.interactions ?? {},
+      posts.length,
+      maxReplies,
+    ),
   }
   if (v.date !== undefined) result.date = string(v.date, 100)
   if (v.sourceText !== undefined)

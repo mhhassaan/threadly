@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { mediaUrl, remoteUrl } from '../lib/thread'
 import type { Media, ThreadRecord, Reaction } from '../lib/thread'
+import { useReplyComposer } from '../features/account/reply-composer'
 const paths: Record<string, string> = {
   more: 'M5 12h.01M12 12h.01M19 12h.01',
   back: 'M19 12H5m7-7-7 7 7 7',
@@ -311,31 +312,16 @@ export function ThreadReplyComposer({
   storageKey?: string
   privateReply?: boolean
 }) {
-  const [value, setValue] = useState(() => {
-    try {
-      return storageKey ? sessionStorage.getItem(storageKey) || '' : ''
-    } catch {
-      return ''
-    }
-  })
-  const [sending, setSending] = useState(false)
+  const { value, sending, change, submit } = useReplyComposer(
+    onReply,
+    storageKey,
+  )
   return (
     <form
       className="thread-reply-composer"
-      onSubmit={async (e) => {
+      onSubmit={(e) => {
         e.preventDefault()
-        if (value.trim()) {
-          setSending(true)
-          const saved = await onReply(value.trim())
-          setSending(false)
-          if (saved !== false) {
-            setValue('')
-            if (storageKey)
-              try {
-                sessionStorage.removeItem(storageKey)
-              } catch {}
-          }
-        }
+        void submit()
       }}
     >
       <div className="avatar" aria-label="Your profile picture">
@@ -352,13 +338,7 @@ export function ThreadReplyComposer({
         disabled={sending}
         rows={1}
         value={value}
-        onChange={(e) => {
-          setValue(e.target.value)
-          if (storageKey)
-            try {
-              sessionStorage.setItem(storageKey, e.target.value)
-            } catch {}
-        }}
+        onChange={(e) => change(e.target.value)}
       />
       <button type="submit" disabled={!value.trim() || sending}>
         Reply
