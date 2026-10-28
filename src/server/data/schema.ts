@@ -92,3 +92,19 @@ export const readingProgress = sqliteTable(
     }).onDelete('cascade'),
   ],
 )
+
+export const sourcePassages = sqliteTable('source_passages', {
+  id: text('id').notNull(), threadId: text('thread_id').notNull(), ownerId: text('owner_id').notNull(),
+  sourceRevision: integer('source_revision').notNull(), start: integer('start_offset').notNull(), end: integer('end_offset').notNull(),
+  text: text('text').notNull(),
+}, t => [
+  foreignKey({ columns: [t.threadId, t.ownerId], foreignColumns: [ownedThreads.id, ownedThreads.ownerId] }).onDelete('cascade'),
+  unique().on(t.threadId, t.ownerId, t.sourceRevision, t.id),
+])
+export const guestIdentities = sqliteTable('guest_identities', {
+  id: text('id').notNull(), threadId: text('thread_id').notNull(), ownerId: text('owner_id').notNull(),
+  name: text('name').notNull(), handle: text('handle').notNull(), voice: text('voice').notNull(), version: integer('version').notNull(),
+}, t => [
+  foreignKey({ columns: [t.threadId, t.ownerId], foreignColumns: [ownedThreads.id, ownedThreads.ownerId] }).onDelete('cascade'),
+  unique().on(t.threadId, t.ownerId, t.id),
+])
