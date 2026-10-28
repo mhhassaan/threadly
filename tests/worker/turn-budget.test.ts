@@ -432,3 +432,43 @@ test('crash_retry_same_request_gets_fresh_attempt_and_reservation', async () => 
     ),
   ).rejects.toMatchObject({ status: 409 })
 })
+
+test('settlement_checks_database_clock_after_batch_delay', async () => {
+  const turn = await reserve(threadIds[0])
+  await env.DB.prepare(
+    "UPDATE ai_turns SET lease_until = strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '+2 seconds') WHERE id = ?",
+  )
+    .bind(turn.id)
+    .run()
+  const db = new Proxy(env.DB, {
+    get(target, key) {
+      if (key === 'batch')
+        return async (statements: D1PreparedStatement[]) => {
+          await new Promise((resolve) => setTimeout(resolve, 2500))
+          return target.batch(statements)
+        }
+      const value = Reflect.get(target, key, target)
+      return typeof value === 'function' ? value.bind(target) : value
+    },
+  })
+  await expect(
+    settleTurn(
+      { ...platform, db },
+      user,
+      turn.id,
+      { inputTokens: 1, outputTokens: 1, estimatedCostMicros: 1 },
+      'complete',
+    ),
+  ).rejects.toMatchObject({ status: 409 })
+  expect(
+    await env.DB.prepare(
+      'SELECT input_tokens, output_tokens, estimated_cost_micros FROM ai_usage WHERE turn_id = ?',
+    )
+      .bind(turn.id)
+      .first(),
+  ).toEqual({
+    input_tokens: null,
+    output_tokens: null,
+    estimated_cost_micros: null,
+  })
+})

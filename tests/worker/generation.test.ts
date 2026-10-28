@@ -396,18 +396,16 @@ test('batch_parents_and_source_citations_persist_exactly_once', async () => {
   ]
   vi.stubGlobal(
     'fetch',
-    vi
-      .fn()
-      .mockResolvedValue(
-        Response.json({
-          choices: [
-            {
-              finish_reason: 'stop',
-              message: { content: JSON.stringify({ comments }) },
-            },
-          ],
-        }),
-      ),
+    vi.fn().mockResolvedValue(
+      Response.json({
+        choices: [
+          {
+            finish_reason: 'stop',
+            message: { content: JSON.stringify({ comments }) },
+          },
+        ],
+      }),
+    ),
   )
   const done = await runTurn(
     platform,
@@ -431,4 +429,135 @@ test('batch_parents_and_source_citations_persist_exactly_once', async () => {
     (await runTurn(platform, user, input, new AbortController().signal))
       .commentIds,
   ).toEqual(done.commentIds)
+})
+
+test('delayed_finalization_after_database_lease_expiry_publishes_nothing_and_retries', async () => {
+  let delayFinalBatch = false
+  const db = new Proxy(env.DB, {
+    get(target, key) {
+      if (key === 'batch')
+        return async (statements: D1PreparedStatement[]) => {
+          if (delayFinalBatch) {
+            delayFinalBatch = false
+            await new Promise((resolve) => setTimeout(resolve, 2500))
+          }
+          return target.batch(statements)
+        }
+      const value = Reflect.get(target, key, target)
+      return typeof value === 'function' ? value.bind(target) : value
+    },
+  })
+  const delayed = { ...platform, db }
+  const guest = getCast(input.threadId).find((p) => p.kind === 'guest')!
+  const comment = {
+    id: 'a',
+    speakerId: guest.id,
+    postId: post,
+    parentId: input.triggerCommentId,
+    batchParentId: null,
+    text: 'Reply',
+    passageIds: ['p0-8'],
+  }
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async () => {
+      await env.DB.prepare(
+        "UPDATE ai_turns SET lease_until = strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '+2 seconds') WHERE status = 'running'",
+      ).run()
+      delayFinalBatch = true
+      return Response.json({
+        choices: [
+          {
+            finish_reason: 'stop',
+            message: { content: JSON.stringify({ comments: [comment] }) },
+          },
+        ],
+        usage: { prompt_tokens: 5, completion_tokens: 3 },
+      })
+    }),
+  )
+  const old = await runTurn(delayed, user, input, new AbortController().signal)
+  expect(old.status).toBe('stale')
+  expect(
+    (await getSnapshot(platform, user, input.threadId)).comments,
+  ).toHaveLength(1)
+  expect(
+    (await env.DB.prepare('SELECT COUNT(*) AS n FROM source_passages').first<{
+      n: number
+    }>())!.n,
+  ).toBe(0)
+  expect(
+    (await env.DB.prepare('SELECT COUNT(*) AS n FROM guest_identities').first<{
+      n: number
+    }>())!.n,
+  ).toBe(0)
+  expect(
+    await env.DB.prepare(
+      'SELECT input_tokens, output_tokens, estimated_cost_micros FROM ai_usage WHERE turn_id = ?',
+    )
+      .bind(old.id)
+      .first(),
+  ).toEqual({
+    input_tokens: null,
+    output_tokens: null,
+    estimated_cost_micros: null,
+  })
+  vi.stubGlobal('fetch', vi.fn().mockResolvedValue(response()))
+  const next = await runTurn(
+    platform,
+    user,
+    input,
+    new AbortController().signal,
+  )
+  expect(next.id).not.toBe(old.id)
+  expect(next.status).toBe('complete')
+})
+
+test('admitted_batch_remains_atomic_if_lease_expires_between_statements', async () => {
+  let intercept = false
+  const db = new Proxy(env.DB, {
+    get(target, key) {
+      if (key === 'batch')
+        return (statements: D1PreparedStatement[]) => {
+          if (intercept) {
+            intercept = false
+            statements = [
+              statements[0],
+              target.prepare(
+                "UPDATE ai_turns SET lease_until = '2000-01-01T00:00:00.000Z' WHERE status = 'complete'",
+              ),
+              ...statements.slice(1),
+            ]
+          }
+          return target.batch(statements)
+        }
+      const value = Reflect.get(target, key, target)
+      return typeof value === 'function' ? value.bind(target) : value
+    },
+  })
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async () => {
+      intercept = true
+      return response()
+    }),
+  )
+  const done = await runTurn(
+    { ...platform, db },
+    user,
+    input,
+    new AbortController().signal,
+  )
+  expect(done.status).toBe('complete')
+  expect(done.commentIds).toHaveLength(1)
+  expect(
+    (await getSnapshot(platform, user, input.threadId)).comments,
+  ).toHaveLength(2)
+  expect(
+    await env.DB.prepare(
+      'SELECT input_tokens, output_tokens FROM ai_usage WHERE turn_id = ?',
+    )
+      .bind(done.id)
+      .first(),
+  ).toEqual({ input_tokens: 5, output_tokens: 3 })
 })

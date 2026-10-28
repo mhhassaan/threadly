@@ -25,11 +25,19 @@ export async function runTurn(
   const turn = await reserveTurn(p, u, input)
   const claimed = await p.db
     .prepare(
-      "UPDATE ai_turns SET status = 'running' WHERE id = ? AND owner_id = ? AND status = 'reserved' AND lease_until > ?",
+      "UPDATE ai_turns SET status = 'running' WHERE id = ? AND owner_id = ? AND status = 'reserved' AND lease_until > strftime('%Y-%m-%dT%H:%M:%fZ', 'now')",
     )
-    .bind(turn.id, u.userId, new Date().toISOString())
+    .bind(turn.id, u.userId)
     .run()
-  if (claimed.meta.changes !== 1) return getTurn(p, u, turn.id)
+  if (claimed.meta.changes !== 1) {
+    await p.db
+      .prepare(
+        "UPDATE ai_turns SET status = 'stale', error_code = 'LEASE_EXPIRED' WHERE id = ? AND owner_id = ? AND status = 'reserved' AND lease_until <= strftime('%Y-%m-%dT%H:%M:%fZ', 'now')",
+      )
+      .bind(turn.id, u.userId)
+      .run()
+    return getTurn(p, u, turn.id)
+  }
   const finishStale = async () => {
     await p.db
       .prepare(
@@ -64,8 +72,18 @@ export async function runTurn(
     const exchange = validateExchange(raw, context)
     if (signal.aborted || !currentPlatform().env.aiEnabled) return finishStale()
     const now = new Date().toISOString()
-    const fence = `EXISTS (SELECT 1 FROM ai_turns WHERE id = ? AND owner_id = ? AND ${finalizationFence})`
-    const statements: D1PreparedStatement[] = []
+    const marker = crypto.randomUUID()
+    // The first statement admits the entire transaction once using DB time.
+    // The private marker gates all dependent writes even if the lease expires
+    // between statements; it is removed before the transaction commits.
+    const fence = `EXISTS (SELECT 1 FROM ai_turns WHERE id = ? AND owner_id = ? AND status = 'complete' AND error_code = ?)`
+    const statements: D1PreparedStatement[] = [
+      p.db
+        .prepare(
+          `UPDATE ai_turns SET status = 'complete', error_code = ? WHERE id = ? AND owner_id = ? AND ${finalizationFence}`,
+        )
+        .bind(marker, turn.id, u.userId),
+    ]
     const guest = getCast(input.threadId).find(
       (persona) =>
         persona.kind === 'guest' &&
@@ -87,7 +105,7 @@ export async function runTurn(
             guest.version,
             turn.id,
             u.userId,
-            now,
+            marker,
           ),
       )
     const usedPassages = new Set(exchange.comments.flatMap((c) => c.passageIds))
@@ -110,7 +128,7 @@ export async function runTurn(
             passage.text,
             turn.id,
             u.userId,
-            now,
+            marker,
           ),
       )
     const ids = new Map(
@@ -139,7 +157,7 @@ export async function runTurn(
             JSON.stringify(comment.passageIds),
             turn.id,
             u.userId,
-            now,
+            marker,
           ),
       )
     statements.push(
@@ -156,27 +174,26 @@ export async function runTurn(
           u.userId,
           turn.id,
           u.userId,
-          now,
+          marker,
         ),
     )
     statements.push(
       p.db
         .prepare(
-          `UPDATE ai_turns SET status = 'complete' WHERE id = ? AND owner_id = ? AND ${finalizationFence}`,
+          `UPDATE ai_turns SET error_code = NULL WHERE id = ? AND owner_id = ? AND error_code = ?`,
         )
-        .bind(turn.id, u.userId, now),
+        .bind(turn.id, u.userId, marker),
     )
     const result = await p.db.batch(statements)
-    if (result[result.length - 1].meta.changes !== 1) return finishStale()
+    if (result[0].meta.changes !== 1) return finishStale()
     return getTurn(p, u, turn.id)
   } catch {
-    const now = new Date().toISOString()
     if (signal.aborted || !currentPlatform().env.aiEnabled) return finishStale()
     const result = await p.db
       .prepare(
         `UPDATE ai_turns SET status = 'failed', error_code = 'GENERATION_FAILED' WHERE id = ? AND owner_id = ? AND ${finalizationFence}`,
       )
-      .bind(turn.id, u.userId, now)
+      .bind(turn.id, u.userId)
       .run()
     if (!result.meta.changes) return finishStale()
     return getTurn(p, u, turn.id)

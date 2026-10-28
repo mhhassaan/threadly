@@ -204,7 +204,7 @@ export async function cancelTurn(
 }
 // Task 8 must use this predicate inside the same D1 batch as every generated
 // comment/memory write, keyed by the attempt ID; a prior read is not a fence.
-export const finalizationFence = `status IN ('reserved','running') AND lease_until > ? AND EXISTS (SELECT 1 FROM owned_threads t JOIN account_settings s ON s.owner_id = t.owner_id WHERE t.id = ai_turns.thread_id AND t.owner_id = ai_turns.owner_id AND t.revision = ai_turns.thread_revision AND t.source_revision = ai_turns.source_revision AND s.ai_enabled = 1 AND s.consent_at IS NOT NULL AND s.settings_epoch = ai_turns.settings_epoch AND s.memory_epoch = ai_turns.memory_epoch)`
+export const finalizationFence = `status IN ('reserved','running') AND lease_until > strftime('%Y-%m-%dT%H:%M:%fZ', 'now') AND EXISTS (SELECT 1 FROM owned_threads t JOIN account_settings s ON s.owner_id = t.owner_id WHERE t.id = ai_turns.thread_id AND t.owner_id = ai_turns.owner_id AND t.revision = ai_turns.thread_revision AND t.source_revision = ai_turns.source_revision AND s.ai_enabled = 1 AND s.consent_at IS NOT NULL AND s.settings_epoch = ai_turns.settings_epoch AND s.memory_epoch = ai_turns.memory_epoch)`
 export async function settleTurn(
   p: Platform,
   u: UserContext,
@@ -226,11 +226,16 @@ export async function settleTurn(
     ].every((x) => Number.isSafeInteger(x) && x >= 0)
   )
     throw new ApiError(400, 'INVALID_USAGE', 'Invalid provider usage')
-  const now = new Date().toISOString()
+  const marker = crypto.randomUUID()
   const result = await p.db.batch([
     p.db
       .prepare(
-        `UPDATE ai_usage SET input_tokens = ?, output_tokens = ?, estimated_cost_micros = ?, reserved_micros = MAX(reserved_micros, COALESCE(?, 0)) WHERE turn_id = ? AND owner_id = ? AND EXISTS (SELECT 1 FROM ai_turns WHERE id = ? AND owner_id = ? AND ${finalizationFence})`,
+        `UPDATE ai_turns SET status = ?, error_code = ? WHERE id = ? AND owner_id = ? AND ${finalizationFence}`,
+      )
+      .bind(outcome, marker, id, u.userId),
+    p.db
+      .prepare(
+        `UPDATE ai_usage SET input_tokens = ?, output_tokens = ?, estimated_cost_micros = ?, reserved_micros = MAX(reserved_micros, COALESCE(?, 0)) WHERE turn_id = ? AND owner_id = ? AND EXISTS (SELECT 1 FROM ai_turns WHERE id = ? AND owner_id = ? AND error_code = ?)`,
       )
       .bind(
         usage.inputTokens,
@@ -241,14 +246,14 @@ export async function settleTurn(
         u.userId,
         id,
         u.userId,
-        now,
+        marker,
       ),
     p.db
       .prepare(
-        `UPDATE ai_turns SET status = ? WHERE id = ? AND owner_id = ? AND ${finalizationFence}`,
+        `UPDATE ai_turns SET error_code = NULL WHERE id = ? AND owner_id = ? AND error_code = ?`,
       )
-      .bind(outcome, id, u.userId, now),
+      .bind(id, u.userId, marker),
   ])
-  if (result[1].meta.changes !== 1)
+  if (result[0].meta.changes !== 1)
     throw new ApiError(409, 'TURN_STALE', 'Generation is no longer active')
 }
