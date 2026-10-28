@@ -42,7 +42,7 @@ export async function updateSettings(
       .bind(u.userId),
     p.db
       .prepare(
-        `UPDATE account_settings SET ai_enabled = COALESCE(?, ai_enabled), memory_enabled = COALESCE(?, memory_enabled), consent_at = CASE WHEN ? THEN COALESCE(consent_at, ?) ELSE consent_at END, settings_epoch = settings_epoch + 1 WHERE owner_id = ?`,
+        `UPDATE account_settings SET ai_enabled = COALESCE(?, ai_enabled), memory_enabled = COALESCE(?, memory_enabled), consent_at = CASE WHEN ? THEN COALESCE(consent_at, ?) ELSE consent_at END, settings_epoch = settings_epoch + 1 WHERE owner_id = ? AND (ai_enabled IS NOT COALESCE(?, ai_enabled) OR memory_enabled IS NOT COALESCE(?, memory_enabled) OR (? = 1 AND consent_at IS NULL))`,
       )
       .bind(
         patch.aiEnabled === undefined ? null : Number(patch.aiEnabled),
@@ -50,12 +50,15 @@ export async function updateSettings(
         Number(patch.acknowledgeConsent === true),
         now,
         u.userId,
+        patch.aiEnabled === undefined ? null : Number(patch.aiEnabled),
+        patch.memoryEnabled === undefined ? null : Number(patch.memoryEnabled),
+        Number(patch.acknowledgeConsent === true),
       ),
     p.db
       .prepare(
-        "UPDATE ai_turns SET status = 'cancelled', error_code = 'AI_DISABLED' WHERE owner_id = ? AND status IN ('reserved','running') AND EXISTS (SELECT 1 FROM account_settings WHERE owner_id = ? AND ai_enabled = 0)",
+        "UPDATE ai_turns SET status = 'cancelled', error_code = CASE WHEN (SELECT ai_enabled FROM account_settings WHERE owner_id = ?) = 0 THEN 'AI_DISABLED' ELSE 'SETTINGS_CHANGED' END WHERE owner_id = ? AND status IN ('reserved','running') AND settings_epoch <> (SELECT settings_epoch FROM account_settings WHERE owner_id = ?)",
       )
-      .bind(u.userId, u.userId),
+      .bind(u.userId, u.userId, u.userId),
   ])
   return getSettings(p, u)
 }

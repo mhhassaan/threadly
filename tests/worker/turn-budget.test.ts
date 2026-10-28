@@ -299,3 +299,102 @@ test('opening_duplicate_new_device_does_not_retry_failed_request', async () => {
     )?.n,
   ).toBe(1)
 })
+
+test('opening_duplicate_ignores_different_trigger', async () => {
+  const first = await reserveTurn(platform, user, {
+    ...request(threadIds[0], 'opening'),
+    triggerCommentId: crypto.randomUUID(),
+  })
+  const duplicate = await reserveTurn(platform, user, {
+    ...request(threadIds[0], 'opening'),
+    triggerCommentId: crypto.randomUUID(),
+  })
+  expect(duplicate.id).toBe(first.id)
+  expect(
+    (
+      await env.DB.prepare('SELECT count(*) AS n FROM ai_usage').first<{
+        n: number
+      }>()
+    )?.n,
+  ).toBe(1)
+})
+
+test('settings_noop_patches_preserve_active_turn', async () => {
+  const turn = await reserve(threadIds[0])
+  const before = await env.DB.prepare(
+    'SELECT settings_epoch FROM account_settings WHERE owner_id = ?',
+  )
+    .bind(user.userId)
+    .first<{ settings_epoch: number }>()
+  await updateSettings(platform, user, {})
+  await updateSettings(platform, user, {
+    aiEnabled: true,
+    memoryEnabled: false,
+    acknowledgeConsent: true,
+  })
+  expect(
+    await env.DB.prepare(
+      'SELECT settings_epoch FROM account_settings WHERE owner_id = ?',
+    )
+      .bind(user.userId)
+      .first(),
+  ).toEqual(before)
+  await settleTurn(
+    platform,
+    user,
+    turn.id,
+    { inputTokens: 1, outputTokens: 1, estimatedCostMicros: 1 },
+    'complete',
+  )
+})
+
+test('settings_memory_change_cancels_active_turn_and_releases_slots', async () => {
+  const turns = await Promise.all(
+    threadIds.slice(0, 3).map((id) => reserve(id)),
+  )
+  await updateSettings(platform, user, { memoryEnabled: true })
+  for (const turn of turns) {
+    expect(
+      await env.DB.prepare('SELECT status FROM ai_turns WHERE id = ?')
+        .bind(turn.id)
+        .first(),
+    ).toEqual({ status: 'cancelled' })
+    await expect(
+      settleTurn(
+        platform,
+        user,
+        turn.id,
+        { inputTokens: 1, outputTokens: 1, estimatedCostMicros: 1 },
+        'complete',
+      ),
+    ).rejects.toMatchObject({ status: 409 })
+  }
+  expect((await reserve(threadIds[0])).status).toBe('reserved')
+  expect((await reserve(threadIds[3])).status).toBe('reserved')
+})
+
+test('concurrent_identical_settings_changes_increment_epoch_once', async () => {
+  const turn = await reserve(threadIds[0])
+  const before = await env.DB.prepare(
+    'SELECT settings_epoch FROM account_settings WHERE owner_id = ?',
+  )
+    .bind(user.userId)
+    .first<{ settings_epoch: number }>()
+  await Promise.all(
+    Array.from({ length: 8 }, () =>
+      updateSettings(platform, user, { memoryEnabled: true }),
+    ),
+  )
+  const after = await env.DB.prepare(
+    'SELECT settings_epoch FROM account_settings WHERE owner_id = ?',
+  )
+    .bind(user.userId)
+    .first<{ settings_epoch: number }>()
+  expect(after!.settings_epoch).toBe(before!.settings_epoch + 1)
+  expect(
+    await env.DB.prepare('SELECT status FROM ai_turns WHERE id = ?')
+      .bind(turn.id)
+      .first(),
+  ).toEqual({ status: 'cancelled' })
+  expect((await reserve(threadIds[0])).status).toBe('reserved')
+})

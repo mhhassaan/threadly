@@ -115,7 +115,7 @@ export async function reserveTurn(
       .prepare(
         `INSERT INTO ai_turns (id, request_id, owner_id, thread_id, status, lease_until, thread_revision, source_revision, settings_epoch, memory_epoch, created_at)
       SELECT ?, r.id, r.owner_id, r.thread_id, 'reserved', ?, t.revision, t.source_revision, s.settings_epoch, s.memory_epoch, ? FROM ai_requests r JOIN owned_threads t ON t.id = r.thread_id AND t.owner_id = r.owner_id JOIN account_settings s ON s.owner_id = r.owner_id
-      WHERE r.owner_id = ? AND r.thread_id = ? AND r.kind = ? AND r.request_id = ? AND r.trigger_comment_id IS ? AND ${eligibility}
+      WHERE r.owner_id = ? AND r.thread_id = ? AND r.kind = ? AND r.request_id = ? AND (r.kind <> 'opening' OR r.source_revision = t.source_revision) AND (r.kind = 'opening' OR r.trigger_comment_id IS ?) AND ${eligibility}
       AND NOT EXISTS (SELECT 1 FROM ai_turns prior WHERE prior.request_id = r.id AND prior.status <> 'failed')
       ON CONFLICT DO NOTHING`,
       )
@@ -139,7 +139,7 @@ export async function reserveTurn(
   await p.db.batch(statements)
   const row = await p.db
     .prepare(
-      `SELECT a.id, a.status, a.error_code, r.request_id AS logical_request_id FROM ai_requests r JOIN ai_turns a ON a.request_id = r.id JOIN owned_threads t ON t.id = r.thread_id AND t.owner_id = r.owner_id WHERE r.owner_id = ? AND r.thread_id = ? AND r.kind = ? AND r.trigger_comment_id IS ? AND (r.request_id = ? OR (r.kind = 'opening' AND r.source_revision = t.source_revision)) ORDER BY a.created_at DESC, a.rowid DESC LIMIT 1`,
+      `SELECT a.id, a.status, a.error_code, r.request_id AS logical_request_id FROM ai_requests r JOIN ai_turns a ON a.request_id = r.id JOIN owned_threads t ON t.id = r.thread_id AND t.owner_id = r.owner_id WHERE r.owner_id = ? AND r.thread_id = ? AND r.kind = ? AND ((r.kind = 'opening' AND r.source_revision = t.source_revision) OR (r.kind = 'reply' AND r.trigger_comment_id IS ? AND r.request_id = ?)) ORDER BY a.created_at DESC, a.rowid DESC LIMIT 1`,
     )
     .bind(
       u.userId,
