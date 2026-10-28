@@ -16,8 +16,10 @@ import { Route as ApiCommentsRouteImport } from './routes/api.comments'
 import { Route as ApiLibraryRouteImport } from './routes/api.library'
 import { Route as ApiMediaRouteImport } from './routes/api.media'
 import { Route as ApiSettingsRouteImport } from './routes/api.settings'
+import { Route as ApiAiTurnsRouteImport } from './routes/api.ai.turns'
 import { Route as ApiAuthSplatRouteImport } from './routes/api.auth.$'
 import { Route as ApiThreadsThreadIdRouteImport } from './routes/api.threads.$threadId'
+import { Route as ApiAiTurnsTurnIdRouteImport } from './routes/api.ai.turns.$turnId'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -54,6 +56,11 @@ const ApiSettingsRoute = ApiSettingsRouteImport.update({
   path: '/api/settings',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiAiTurnsRoute = ApiAiTurnsRouteImport.update({
+  id: '/api/ai/turns',
+  path: '/api/ai/turns',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiAuthSplatRoute = ApiAuthSplatRouteImport.update({
   id: '/api/auth/$',
   path: '/api/auth/$',
@@ -64,6 +71,11 @@ const ApiThreadsThreadIdRoute = ApiThreadsThreadIdRouteImport.update({
   path: '/api/threads/$threadId',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiAiTurnsTurnIdRoute = ApiAiTurnsTurnIdRouteImport.update({
+  id: '/$turnId',
+  path: '/$turnId',
+  getParentRoute: () => ApiAiTurnsRoute,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -73,8 +85,10 @@ export interface FileRoutesByFullPath {
   '/api/library': typeof ApiLibraryRoute
   '/api/media': typeof ApiMediaRoute
   '/api/settings': typeof ApiSettingsRoute
+  '/api/ai/turns': typeof ApiAiTurnsRouteWithChildren
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/api/threads/$threadId': typeof ApiThreadsThreadIdRoute
+  '/api/ai/turns/$turnId': typeof ApiAiTurnsTurnIdRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -84,8 +98,10 @@ export interface FileRoutesByTo {
   '/api/library': typeof ApiLibraryRoute
   '/api/media': typeof ApiMediaRoute
   '/api/settings': typeof ApiSettingsRoute
+  '/api/ai/turns': typeof ApiAiTurnsRouteWithChildren
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/api/threads/$threadId': typeof ApiThreadsThreadIdRoute
+  '/api/ai/turns/$turnId': typeof ApiAiTurnsTurnIdRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -96,8 +112,10 @@ export interface FileRoutesById {
   '/api/library': typeof ApiLibraryRoute
   '/api/media': typeof ApiMediaRoute
   '/api/settings': typeof ApiSettingsRoute
+  '/api/ai/turns': typeof ApiAiTurnsRouteWithChildren
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/api/threads/$threadId': typeof ApiThreadsThreadIdRoute
+  '/api/ai/turns/$turnId': typeof ApiAiTurnsTurnIdRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -109,8 +127,10 @@ export interface FileRouteTypes {
     | '/api/library'
     | '/api/media'
     | '/api/settings'
+    | '/api/ai/turns'
     | '/api/auth/$'
     | '/api/threads/$threadId'
+    | '/api/ai/turns/$turnId'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -120,8 +140,10 @@ export interface FileRouteTypes {
     | '/api/library'
     | '/api/media'
     | '/api/settings'
+    | '/api/ai/turns'
     | '/api/auth/$'
     | '/api/threads/$threadId'
+    | '/api/ai/turns/$turnId'
   id:
     | '__root__'
     | '/'
@@ -131,8 +153,10 @@ export interface FileRouteTypes {
     | '/api/library'
     | '/api/media'
     | '/api/settings'
+    | '/api/ai/turns'
     | '/api/auth/$'
     | '/api/threads/$threadId'
+    | '/api/ai/turns/$turnId'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -143,6 +167,7 @@ export interface RootRouteChildren {
   ApiLibraryRoute: typeof ApiLibraryRoute
   ApiMediaRoute: typeof ApiMediaRoute
   ApiSettingsRoute: typeof ApiSettingsRoute
+  ApiAiTurnsRoute: typeof ApiAiTurnsRouteWithChildren
   ApiAuthSplatRoute: typeof ApiAuthSplatRoute
   ApiThreadsThreadIdRoute: typeof ApiThreadsThreadIdRoute
 }
@@ -198,6 +223,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiSettingsRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/ai/turns': {
+      id: '/api/ai/turns'
+      path: '/api/ai/turns'
+      fullPath: '/api/ai/turns'
+      preLoaderRoute: typeof ApiAiTurnsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/auth/$': {
       id: '/api/auth/$'
       path: '/api/auth/$'
@@ -212,8 +244,27 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiThreadsThreadIdRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/ai/turns/$turnId': {
+      id: '/api/ai/turns/$turnId'
+      path: '/$turnId'
+      fullPath: '/api/ai/turns/$turnId'
+      preLoaderRoute: typeof ApiAiTurnsTurnIdRouteImport
+      parentRoute: typeof ApiAiTurnsRoute
+    }
   }
 }
+
+interface ApiAiTurnsRouteChildren {
+  ApiAiTurnsTurnIdRoute: typeof ApiAiTurnsTurnIdRoute
+}
+
+const ApiAiTurnsRouteChildren: ApiAiTurnsRouteChildren = {
+  ApiAiTurnsTurnIdRoute: ApiAiTurnsTurnIdRoute,
+}
+
+const ApiAiTurnsRouteWithChildren = ApiAiTurnsRoute._addFileChildren(
+  ApiAiTurnsRouteChildren,
+)
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
@@ -223,6 +274,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiLibraryRoute: ApiLibraryRoute,
   ApiMediaRoute: ApiMediaRoute,
   ApiSettingsRoute: ApiSettingsRoute,
+  ApiAiTurnsRoute: ApiAiTurnsRouteWithChildren,
   ApiAuthSplatRoute: ApiAuthSplatRoute,
   ApiThreadsThreadIdRoute: ApiThreadsThreadIdRoute,
 }

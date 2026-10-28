@@ -1,4 +1,7 @@
 import { getSettings, updateSettings } from './settings'
+import { runTurn } from '../discussion/generate'
+import { cancelTurn, getTurn } from '../discussion/turns'
+import type { TurnInput } from '../../lib/account-thread'
 import { ApiError } from '../../lib/account-thread'
 import { requireUser } from '../auth/session'
 import type { Platform } from '../platform'
@@ -189,5 +192,46 @@ export function handleSettings(
         },
       ),
     )
+  })
+}
+
+export function handleAiTurns(
+  request: Request,
+  platform: Platform,
+  currentPlatform: () => Platform,
+): Promise<Response> {
+  return respond(async () => {
+    const user = await requireUser(request, platform)
+    if (request.method !== 'POST') unsupported()
+    const input = object(await body(request, platform), [
+      'requestId',
+      'threadId',
+      'kind',
+      'triggerCommentId',
+    ])
+    if (!Object.hasOwn(input, 'triggerCommentId')) invalid()
+    return json(
+      await runTurn(
+        platform,
+        user,
+        input as TurnInput,
+        request.signal,
+        currentPlatform,
+      ),
+    )
+  })
+}
+
+export function handleAiTurn(
+  request: Request,
+  platform: Platform,
+  id: string,
+): Promise<Response> {
+  return respond(async () => {
+    const user = await requireUser(request, platform)
+    if (request.method === 'GET') return json(await getTurn(platform, user, id))
+    if (request.method !== 'DELETE') unsupported()
+    object(await body(request, platform), [])
+    return json(await cancelTurn(platform, user, id))
   })
 }

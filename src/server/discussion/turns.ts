@@ -26,7 +26,7 @@ function dto(row: TurnRow): TurnState {
 export type ProviderUsage = {
   inputTokens: number
   outputTokens: number
-  estimatedCostMicros: number
+  estimatedCostMicros: number | null
 }
 export async function getTurn(
   p: Platform,
@@ -115,8 +115,8 @@ export async function reserveTurn(
       .prepare(
         `INSERT INTO ai_turns (id, request_id, owner_id, thread_id, status, lease_until, thread_revision, source_revision, settings_epoch, memory_epoch, created_at)
       SELECT ?, r.id, r.owner_id, r.thread_id, 'reserved', ?, t.revision, t.source_revision, s.settings_epoch, s.memory_epoch, ? FROM ai_requests r JOIN owned_threads t ON t.id = r.thread_id AND t.owner_id = r.owner_id JOIN account_settings s ON s.owner_id = r.owner_id
-      WHERE r.owner_id = ? AND r.thread_id = ? AND r.kind = ? AND r.request_id = ? AND (r.kind <> 'opening' OR r.source_revision = t.source_revision) AND (r.kind = 'opening' OR r.trigger_comment_id IS ?) AND ${eligibility}
-      AND NOT EXISTS (SELECT 1 FROM ai_turns prior WHERE prior.request_id = r.id AND prior.status <> 'failed')
+      WHERE r.owner_id = ? AND r.thread_id = ? AND r.kind = ? AND r.request_id = ? AND r.source_revision = t.source_revision AND (r.kind = 'opening' OR r.trigger_comment_id IS ?) AND ${eligibility}
+      AND NOT EXISTS (SELECT 1 FROM ai_turns prior WHERE prior.request_id = r.id AND prior.status NOT IN ('failed','stale'))
       ON CONFLICT DO NOTHING`,
       )
       .bind(
@@ -151,7 +151,7 @@ export async function reserveTurn(
     .first<TurnRow>()
   if (
     row &&
-    (row.status !== 'failed' ||
+    (!['failed', 'stale'].includes(row.status) ||
       row.id === attempt ||
       row.logical_request_id !== input.requestId)
   )
@@ -217,16 +217,20 @@ export async function settleTurn(
   if (!p.env.aiEnabled)
     throw new ApiError(409, 'TURN_STALE', 'AI generation is disabled')
   if (
-    ![usage.inputTokens, usage.outputTokens, usage.estimatedCostMicros].every(
-      (x) => Number.isSafeInteger(x) && x >= 0,
-    )
+    ![
+      usage.inputTokens,
+      usage.outputTokens,
+      ...(usage.estimatedCostMicros === null
+        ? []
+        : [usage.estimatedCostMicros]),
+    ].every((x) => Number.isSafeInteger(x) && x >= 0)
   )
     throw new ApiError(400, 'INVALID_USAGE', 'Invalid provider usage')
   const now = new Date().toISOString()
   const result = await p.db.batch([
     p.db
       .prepare(
-        `UPDATE ai_usage SET input_tokens = ?, output_tokens = ?, estimated_cost_micros = ?, reserved_micros = MAX(reserved_micros, ?) WHERE turn_id = ? AND owner_id = ? AND EXISTS (SELECT 1 FROM ai_turns WHERE id = ? AND owner_id = ? AND ${finalizationFence})`,
+        `UPDATE ai_usage SET input_tokens = ?, output_tokens = ?, estimated_cost_micros = ?, reserved_micros = MAX(reserved_micros, COALESCE(?, 0)) WHERE turn_id = ? AND owner_id = ? AND EXISTS (SELECT 1 FROM ai_turns WHERE id = ? AND owner_id = ? AND ${finalizationFence})`,
       )
       .bind(
         usage.inputTokens,

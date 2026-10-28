@@ -398,3 +398,37 @@ test('concurrent_identical_settings_changes_increment_epoch_once', async () => {
   ).toEqual({ status: 'cancelled' })
   expect((await reserve(threadIds[0])).status).toBe('reserved')
 })
+
+test('crash_retry_same_request_gets_fresh_attempt_and_reservation', async () => {
+  vi.useFakeTimers()
+  vi.setSystemTime(new Date('2026-10-27T10:00:00Z'))
+  const input = request(threadIds[0])
+  const old = await reserveTurn(platform, user, input)
+  vi.advanceTimersByTime(91_000)
+  const next = await reserveTurn(platform, user, input)
+  expect(next.id).not.toBe(old.id)
+  expect(next.status).toBe('reserved')
+  expect(
+    (await env.DB.prepare(
+      'SELECT COUNT(*) AS n FROM ai_allowances WHERE owner_id = ?',
+    )
+      .bind(user.userId)
+      .first<{ n: number }>())!.n,
+  ).toBe(1)
+  expect(
+    (await env.DB.prepare(
+      'SELECT COUNT(*) AS n FROM ai_usage WHERE owner_id = ?',
+    )
+      .bind(user.userId)
+      .first<{ n: number }>())!.n,
+  ).toBe(2)
+  await expect(
+    settleTurn(
+      platform,
+      user,
+      old.id,
+      { inputTokens: 1, outputTokens: 1, estimatedCostMicros: 1 },
+      'complete',
+    ),
+  ).rejects.toMatchObject({ status: 409 })
+})
