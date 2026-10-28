@@ -1,3 +1,4 @@
+import { getSettings, updateSettings } from './settings'
 import { ApiError } from '../../lib/account-thread'
 import { requireUser } from '../auth/session'
 import type { Platform } from '../platform'
@@ -158,6 +159,35 @@ export function handleComments(
         humanComment(await body(request, platform)),
       ),
       201,
+    )
+  })
+}
+
+export function handleSettings(
+  request: Request,
+  platform: Platform,
+): Promise<Response> {
+  return respond(async () => {
+    const user = await requireUser(request, platform)
+    if (request.method === 'GET') return json(await getSettings(platform, user))
+    if (request.method !== 'PATCH') unsupported()
+    const patch = object(await body(request, platform), [
+      'aiEnabled',
+      'memoryEnabled',
+      'acknowledgeConsent',
+    ])
+    for (const value of Object.values(patch))
+      if (typeof value !== 'boolean') invalid()
+    return json(
+      await updateSettings(
+        platform,
+        user,
+        patch as {
+          aiEnabled?: boolean
+          memoryEnabled?: boolean
+          acknowledgeConsent?: boolean
+        },
+      ),
     )
   })
 }

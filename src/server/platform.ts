@@ -11,6 +11,7 @@ export type ServerConfig = {
   resendApiKey: string
   deepseekApiKey: string
   aiEnabled: boolean
+  aiWorstCaseCostMicros?: number
   aiDailySpendLimitUsd: number
 }
 
@@ -24,6 +25,7 @@ type SecretBindings = {
   BETTER_AUTH_SECRET?: string
   RESEND_API_KEY?: string
   DEEPSEEK_API_KEY?: string
+  AI_WORST_CASE_COST_MICROS?: string
 }
 
 // Called only from server routes/functions; bindings never enter client state.
@@ -42,6 +44,7 @@ export const getPlatform = createServerOnlyFn((): Platform => {
       resendFrom: bindings.RESEND_FROM,
       resendApiKey: bindings.RESEND_API_KEY ?? '',
       deepseekApiKey: bindings.DEEPSEEK_API_KEY ?? '',
+      aiWorstCaseCostMicros: Number(bindings.AI_WORST_CASE_COST_MICROS),
       aiEnabled: bindings.AI_ENABLED === 'true',
       aiDailySpendLimitUsd:
         Number.isFinite(ceiling) && ceiling > 0 ? ceiling : 0,

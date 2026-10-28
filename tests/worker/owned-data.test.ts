@@ -11,8 +11,10 @@ import {
   handleLibrary,
   handleThread,
   handleComments,
+  handleSettings,
 } from '../../src/server/data/api'
 import readingMigration from '../../drizzle/migrations/0003_reading.sql?raw'
+import turnMigration from '../../drizzle/migrations/0006_turns.sql?raw'
 import { saveReadProgress, saveThread } from '../../src/server/data/threads'
 import { summarize } from '../../src/lib/summary'
 
@@ -85,6 +87,7 @@ function call(
     headers: { cookie, origin, 'content-type': contentType },
     ...(body === undefined ? {} : { body: JSON.stringify(body) }),
   })
+  if (path === '/api/settings') return handleSettings(request, platform)
   if (path.startsWith('/api/threads/'))
     return handleThread(request, platform, path.split('/').at(-1)!)
   return path === '/api/comments'
@@ -116,6 +119,7 @@ const comment = (
 beforeAll(async () => {
   await applyAuthMigrations(env.DB)
   await applyMigration(env.DB, readingMigration)
+  await applyMigration(env.DB, turnMigration)
 })
 beforeEach(async () => {
   for (const table of [
@@ -546,4 +550,68 @@ test('long_complete_thought_summary_roundtrips_and_edits_without_truncation', as
     revision: 2,
   })
   expect(updated.thread.record.sourceText).toBe(sourceText)
+})
+
+test('settings_api_is_private_verified_and_origin_checked', async () => {
+  const first = await call('/api/settings')
+  expect(first.status).toBe(200)
+  expect(first.headers.get('cache-control')).toBe('private, no-store')
+  expect(await first.json()).toEqual({
+    aiEnabled: false,
+    memoryEnabled: false,
+    consentAt: null,
+    memoryEpoch: 0,
+  })
+  expect(
+    (
+      await call(
+        '/api/settings',
+        'PATCH',
+        { aiEnabled: true },
+        alice,
+        'https://hostile.invalid',
+      )
+    ).status,
+  ).toBe(403)
+  expect(
+    (
+      await call(
+        '/api/settings',
+        'PATCH',
+        { aiEnabled: true },
+        alice,
+        base,
+        'text/plain',
+      )
+    ).status,
+  ).toBe(415)
+  expect(
+    (await call('/api/settings', 'PATCH', { consentAt: 'forged' })).status,
+  ).toBe(400)
+  expect(
+    (await call('/api/settings', 'PATCH', { aiEnabled: 'true' })).status,
+  ).toBe(400)
+  const updated = await call('/api/settings', 'PATCH', {
+    aiEnabled: true,
+    acknowledgeConsent: true,
+  })
+  expect(updated.status).toBe(200)
+  expect(await updated.json()).toMatchObject({
+    aiEnabled: true,
+    memoryEnabled: false,
+    consentAt: expect.any(String),
+  })
+  expect(
+    await (await call('/api/settings', 'GET', undefined, bob)).json(),
+  ).toEqual({
+    aiEnabled: false,
+    memoryEnabled: false,
+    consentAt: null,
+    memoryEpoch: 0,
+  })
+  expect((await call('/api/settings', 'GET', undefined, '')).status).toBe(401)
+  await env.DB.prepare('UPDATE "user" SET email_verified = 0 WHERE id = ?')
+    .bind(aliceId)
+    .run()
+  expect((await call('/api/settings')).status).toBe(403)
 })
