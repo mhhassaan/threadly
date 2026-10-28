@@ -2,8 +2,10 @@ import { env } from 'cloudflare:workers'
 import { afterEach, beforeAll, beforeEach, expect, test, vi } from 'vitest'
 import { applyAuthMigrations, applyMigration } from './migrations'
 import reading from '../../drizzle/migrations/0003_reading.sql?raw'
+import imports from '../../drizzle/migrations/0004_import.sql?raw'
 import discussion from '../../drizzle/migrations/0005_discussion.sql?raw'
 import turns from '../../drizzle/migrations/0006_turns.sql?raw'
+import discussionUi from '../../drizzle/migrations/0007_discussion_ui.sql?raw'
 import {
   saveThread,
   getSnapshot,
@@ -48,8 +50,10 @@ let post: string
 beforeAll(async () => {
   await applyAuthMigrations(env.DB)
   await applyMigration(env.DB, reading)
+  await applyMigration(env.DB, imports)
   await applyMigration(env.DB, discussion)
   await applyMigration(env.DB, turns)
+  await applyMigration(env.DB, discussionUi)
 })
 beforeEach(async () => {
   await env.DB.prepare('DELETE FROM ai_usage').run()
@@ -560,4 +564,170 @@ test('admitted_batch_remains_atomic_if_lease_expires_between_statements', async 
       .bind(done.id)
       .first(),
   ).toEqual({ input_tokens: 5, output_tokens: 3 })
+})
+
+// The UI may cancel before the synchronous generation POST has reserved an attempt.
+test('logical_cancel_before_reservation_blocks_provider_and_spend', async () => {
+  const { cancelLogicalTurn } =
+    await import('../../src/server/discussion/turns')
+  const result = await cancelLogicalTurn(platform, user, input)
+  expect(result).toEqual({ turn: null, cancelled: true })
+  const provider = vi.fn().mockResolvedValue(response())
+  vi.stubGlobal('fetch', provider)
+  await expect(
+    runTurn(platform, user, input, new AbortController().signal),
+  ).rejects.toMatchObject({ code: 'TURN_CANCELLED' })
+  expect(provider).not.toHaveBeenCalled()
+  expect(
+    await env.DB.prepare('SELECT COUNT(*) AS n FROM ai_usage').first(),
+  ).toEqual({ n: 0 })
+})
+
+test('logical_status_reads_running_and_cancel_wins', async () => {
+  const { getLogicalTurn, cancelLogicalTurn } =
+    await import('../../src/server/discussion/turns')
+  const { reserveTurn } = await import('../../src/server/discussion/turns')
+  const attempt = await reserveTurn(platform, user, input)
+  expect((await getLogicalTurn(platform, user, input)).turn?.id).toBe(
+    attempt.id,
+  )
+  expect((await cancelLogicalTurn(platform, user, input)).turn?.status).toBe(
+    'cancelled',
+  )
+})
+
+test('logical_cancel_after_completion_returns_completed_comments', async () => {
+  const { cancelLogicalTurn } =
+    await import('../../src/server/discussion/turns')
+  vi.stubGlobal('fetch', vi.fn().mockResolvedValue(response()))
+  const completed = await runTurn(
+    platform,
+    user,
+    input,
+    new AbortController().signal,
+  )
+  const result = await cancelLogicalTurn(platform, user, input)
+  expect(result.cancelled).toBe(false)
+  expect(result.turn).toEqual(completed)
+})
+
+test('logical_cancel_rejects_reused_request_identity', async () => {
+  const { cancelLogicalTurn } =
+    await import('../../src/server/discussion/turns')
+  await cancelLogicalTurn(platform, user, input)
+  const changed = { ...input, kind: 'opening' as const, triggerCommentId: null }
+  await expect(
+    cancelLogicalTurn(platform, user, changed),
+  ).rejects.toMatchObject({ code: 'REQUEST_CONFLICT' })
+})
+
+test('logical_cancel_while_running_blocks_late_publication', async () => {
+  const { cancelLogicalTurn } =
+    await import('../../src/server/discussion/turns')
+  let release!: () => void
+  let started!: () => void
+  const began = new Promise<void>((resolve) => {
+    started = resolve
+  })
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async () => {
+      started()
+      await new Promise<void>((resolve) => {
+        release = resolve
+      })
+      return response()
+    }),
+  )
+  const pending = runTurn(platform, user, input, new AbortController().signal)
+  await began
+  const cancelled = await cancelLogicalTurn(platform, user, input)
+  expect(cancelled.turn?.status).toBe('cancelled')
+  release()
+  expect((await pending).status).toBe('cancelled')
+  expect(
+    (await getSnapshot(platform, user, input.threadId)).comments,
+  ).toHaveLength(1)
+})
+
+test('logical_cancel_rejects_identity_of_existing_request', async () => {
+  const { cancelLogicalTurn, reserveTurn, getTurn } =
+    await import('../../src/server/discussion/turns')
+  const attempt = await reserveTurn(platform, user, input)
+  await expect(
+    cancelLogicalTurn(platform, user, {
+      ...input,
+      kind: 'opening',
+      triggerCommentId: null,
+    }),
+  ).rejects.toMatchObject({ code: 'REQUEST_CONFLICT' })
+  expect((await getTurn(platform, user, attempt.id)).status).toBe('reserved')
+})
+
+test('logical_status_rejects_mismatched_request_identity', async () => {
+  const { getLogicalTurn, reserveTurn } =
+    await import('../../src/server/discussion/turns')
+  await reserveTurn(platform, user, input)
+  await expect(
+    getLogicalTurn(platform, user, {
+      ...input,
+      kind: 'opening',
+      triggerCommentId: null,
+    }),
+  ).rejects.toMatchObject({ code: 'REQUEST_CONFLICT' })
+})
+
+test('logical_endpoints_validate_trigger_owner_and_kind', async () => {
+  const { getLogicalTurn, cancelLogicalTurn } =
+    await import('../../src/server/discussion/turns')
+  for (const operation of [getLogicalTurn, cancelLogicalTurn]) {
+    await expect(
+      operation(platform, user, {
+        ...input,
+        triggerCommentId: crypto.randomUUID(),
+      }),
+    ).rejects.toMatchObject({ status: 404 })
+    await expect(
+      operation(platform, user, { ...input, kind: 'opening' }),
+    ).rejects.toMatchObject({ status: 400 })
+  }
+})
+
+test('logical_cancel_and_reservation_are_serialized', async () => {
+  const { cancelLogicalTurn, reserveTurn, getLogicalTurn } =
+    await import('../../src/server/discussion/turns')
+  const [cancel, reserve] = await Promise.allSettled([
+    cancelLogicalTurn(platform, user, input),
+    reserveTurn(platform, user, input),
+  ])
+  expect(cancel.status).toBe('fulfilled')
+  if (reserve.status === 'rejected')
+    expect(reserve.reason).toMatchObject({ code: 'TURN_CANCELLED' })
+  const status = await getLogicalTurn(platform, user, input)
+  expect(status.cancelled).toBe(true)
+  expect(status.turn === null || status.turn.status === 'cancelled').toBe(true)
+  expect(
+    await env.DB.prepare(
+      "SELECT count(*) AS n FROM ai_turns WHERE status IN ('reserved','running')",
+    ).first(),
+  ).toEqual({ n: 0 })
+})
+
+test('logical_opening_lookup_uses_thread_and_source_revision', async () => {
+  const { cancelLogicalTurn, getLogicalTurn, reserveTurn } =
+    await import('../../src/server/discussion/turns')
+  const opening = {
+    requestId: crypto.randomUUID(),
+    threadId: input.threadId,
+    kind: 'opening' as const,
+    triggerCommentId: null,
+  }
+  const attempt = await reserveTurn(platform, user, opening)
+  const otherRequest = { ...opening, requestId: crypto.randomUUID() }
+  expect((await getLogicalTurn(platform, user, otherRequest)).turn?.id).toBe(
+    attempt.id,
+  )
+  expect(
+    (await cancelLogicalTurn(platform, user, otherRequest)).turn?.status,
+  ).toBe('cancelled')
 })

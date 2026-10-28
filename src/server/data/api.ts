@@ -1,6 +1,11 @@
 import { getSettings, updateSettings } from './settings'
 import { runTurn } from '../discussion/generate'
-import { cancelTurn, getTurn } from '../discussion/turns'
+import {
+  cancelTurn,
+  getTurn,
+  cancelLogicalTurn,
+  getLogicalTurn,
+} from '../discussion/turns'
 import type { TurnInput } from '../../lib/account-thread'
 import { ApiError } from '../../lib/account-thread'
 import { requireUser } from '../auth/session'
@@ -202,6 +207,33 @@ export function handleAiTurns(
 ): Promise<Response> {
   return respond(async () => {
     const user = await requireUser(request, platform)
+    if (request.method === 'GET') {
+      const params = new URL(request.url).searchParams
+      const keys = ['requestId', 'threadId', 'kind', 'triggerCommentId']
+      if (
+        [...params.keys()].some((key) => !keys.includes(key)) ||
+        keys.some((key) => params.getAll(key).length !== 1)
+      )
+        invalid()
+      return json(
+        await getLogicalTurn(platform, user, {
+          requestId: params.get('requestId')!,
+          threadId: params.get('threadId')!,
+          kind: params.get('kind') as TurnInput['kind'],
+          triggerCommentId: params.get('triggerCommentId') || null,
+        }),
+      )
+    }
+    if (request.method === 'DELETE') {
+      const input = object(await body(request, platform), [
+        'requestId',
+        'threadId',
+        'kind',
+        'triggerCommentId',
+      ])
+      if (!Object.hasOwn(input, 'triggerCommentId')) invalid()
+      return json(await cancelLogicalTurn(platform, user, input as TurnInput))
+    }
     if (request.method !== 'POST') unsupported()
     const input = object(await body(request, platform), [
       'requestId',

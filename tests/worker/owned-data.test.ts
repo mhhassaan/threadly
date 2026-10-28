@@ -14,7 +14,9 @@ import {
   handleSettings,
 } from '../../src/server/data/api'
 import readingMigration from '../../drizzle/migrations/0003_reading.sql?raw'
+import importMigration from '../../drizzle/migrations/0004_import.sql?raw'
 import turnMigration from '../../drizzle/migrations/0006_turns.sql?raw'
+import discussionUi from '../../drizzle/migrations/0007_discussion_ui.sql?raw'
 import { saveReadProgress, saveThread } from '../../src/server/data/threads'
 import { summarize } from '../../src/lib/summary'
 
@@ -119,7 +121,9 @@ const comment = (
 beforeAll(async () => {
   await applyAuthMigrations(env.DB)
   await applyMigration(env.DB, readingMigration)
+  await applyMigration(env.DB, importMigration)
   await applyMigration(env.DB, turnMigration)
+  await applyMigration(env.DB, discussionUi)
 })
 beforeEach(async () => {
   for (const table of [
@@ -614,4 +618,57 @@ test('settings_api_is_private_verified_and_origin_checked', async () => {
     .bind(aliceId)
     .run()
   expect((await call('/api/settings')).status).toBe(403)
+})
+
+test('logical_turn_http_owner_origin_and_no_store', async () => {
+  const { handleAiTurns } = await import('../../src/server/data/api')
+  const thread = await create()
+  const input = {
+    requestId: crypto.randomUUID(),
+    threadId: thread.id,
+    kind: 'opening',
+    triggerCommentId: null,
+  }
+  const invoke = (cookie: string, origin: string) =>
+    handleAiTurns(
+      new Request(base + '/api/ai/turns', {
+        method: 'DELETE',
+        headers: { cookie, origin, 'content-type': 'application/json' },
+        body: JSON.stringify(input),
+      }),
+      platform,
+      () => platform,
+    )
+  expect((await invoke(bob, base)).status).toBe(404)
+  expect((await invoke(alice, 'https://hostile.invalid')).status).toBe(403)
+  const result = await invoke(alice, base)
+  expect(result.status).toBe(200)
+  expect(result.headers.get('cache-control')).toBe('private, no-store')
+  expect(await result.json()).toEqual({ turn: null, cancelled: true })
+})
+
+test('logical_status_http_is_owner_scoped_read_only_and_private', async () => {
+  const { handleAiTurns } = await import('../../src/server/data/api')
+  const thread = await create()
+  const query = new URLSearchParams({
+    requestId: crypto.randomUUID(),
+    threadId: thread.id,
+    kind: 'opening',
+    triggerCommentId: '',
+  })
+  const invoke = (cookie: string) =>
+    handleAiTurns(
+      new Request(base + '/api/ai/turns?' + query, { headers: { cookie } }),
+      platform,
+      () => platform,
+    )
+  expect((await invoke('')).status).toBe(401)
+  expect((await invoke(bob)).status).toBe(404)
+  const response = await invoke(alice)
+  expect(response.status).toBe(200)
+  expect(response.headers.get('cache-control')).toBe('private, no-store')
+  expect(await response.json()).toEqual({ turn: null, cancelled: false })
+  expect(
+    await env.DB.prepare('SELECT COUNT(*) AS n FROM ai_requests').first(),
+  ).toEqual({ n: 0 })
 })

@@ -107,6 +107,11 @@ export async function getSnapshot(
         'SELECT post_id, read_at FROM reading_progress WHERE thread_id = ? AND owner_id = ?',
       )
       .bind(threadId, u.userId),
+    p.db
+      .prepare(
+        'SELECT 1 FROM legacy_imports WHERE thread_id = ? AND owner_id = ?',
+      )
+      .bind(threadId, u.userId),
   ])
   const row = results[0].results[0] as ThreadRow | undefined
   if (!row) notFound()
@@ -115,6 +120,7 @@ export async function getSnapshot(
   return {
     thread: threadDto(row, results[1].results as PostRow[]),
     comments: (results[2].results as CommentRow[]).map(commentDto),
+    isImported: results[4].results.length > 0,
     readPostId: read?.post_id ?? null,
     readAt: read?.read_at ?? null,
   }

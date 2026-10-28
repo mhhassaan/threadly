@@ -3,6 +3,7 @@ import {
   type UserContext,
   type TurnInput,
   type TurnState,
+  type LogicalTurnStatus,
 } from '../../lib/account-thread'
 import type { Platform } from '../platform'
 import { requireVerified, notFound } from '../data/threads'
@@ -27,6 +28,166 @@ export type ProviderUsage = {
   inputTokens: number
   outputTokens: number
   estimatedCostMicros: number | null
+}
+async function validateLogicalInput(
+  p: Platform,
+  u: UserContext,
+  input: TurnInput,
+) {
+  requireVerified(u)
+  uuid(input.requestId)
+  uuid(input.threadId)
+  if (input.kind !== 'opening' && input.kind !== 'reply')
+    throw new ApiError(400, 'INVALID_INPUT', 'Invalid turn kind')
+  if (
+    (input.kind === 'opening' && input.triggerCommentId !== null) ||
+    (input.kind === 'reply' && input.triggerCommentId === null)
+  )
+    throw new ApiError(400, 'INVALID_INPUT', 'Invalid turn trigger')
+  if (input.triggerCommentId !== null) uuid(input.triggerCommentId)
+  const thread = await p.db
+    .prepare(
+      'SELECT source_revision FROM owned_threads WHERE id = ? AND owner_id = ?',
+    )
+    .bind(input.threadId, u.userId)
+    .first<{ source_revision: number }>()
+  if (!thread) notFound()
+  if (
+    input.triggerCommentId !== null &&
+    !(await p.db
+      .prepare(
+        "SELECT 1 FROM comments WHERE id = ? AND thread_id = ? AND owner_id = ? AND author_kind = 'human'",
+      )
+      .bind(input.triggerCommentId, input.threadId, u.userId)
+      .first())
+  )
+    notFound()
+  return thread
+}
+export async function getLogicalTurn(
+  p: Platform,
+  u: UserContext,
+  input: TurnInput,
+): Promise<LogicalTurnStatus> {
+  const thread = await validateLogicalInput(p, u, input)
+  const conflict = await p.db
+    .prepare(
+      `SELECT 1 FROM (SELECT thread_id, kind, trigger_comment_id, source_revision FROM ai_requests WHERE owner_id = ? AND request_id = ? UNION ALL SELECT thread_id, kind, trigger_comment_id, source_revision FROM ai_request_cancellations WHERE owner_id = ? AND request_id = ?) WHERE thread_id <> ? OR kind <> ? OR trigger_comment_id IS NOT ? OR source_revision <> ? LIMIT 1`,
+    )
+    .bind(
+      u.userId,
+      input.requestId,
+      u.userId,
+      input.requestId,
+      input.threadId,
+      input.kind,
+      input.triggerCommentId,
+      thread.source_revision,
+    )
+    .first()
+  if (conflict)
+    throw new ApiError(
+      409,
+      'REQUEST_CONFLICT',
+      'Request identity does not match',
+    )
+  const row = await p.db
+    .prepare(
+      `SELECT a.id FROM ai_requests r JOIN ai_turns a ON a.request_id = r.id WHERE r.owner_id = ? AND r.thread_id = ? AND r.kind = ? AND ((r.kind = 'opening' AND r.source_revision = ?) OR (r.kind = 'reply' AND r.request_id = ? AND r.trigger_comment_id IS ?)) ORDER BY a.created_at DESC, a.rowid DESC LIMIT 1`,
+    )
+    .bind(
+      u.userId,
+      input.threadId,
+      input.kind,
+      thread.source_revision,
+      input.requestId,
+      input.triggerCommentId,
+    )
+    .first<{ id: string }>()
+  const turn = row ? await getTurn(p, u, row.id) : null
+  const tombstone = await p.db
+    .prepare(
+      'SELECT 1 FROM ai_request_cancellations WHERE owner_id = ? AND request_id = ?',
+    )
+    .bind(u.userId, input.requestId)
+    .first()
+  return { turn, cancelled: turn ? turn.status === 'cancelled' : !!tombstone }
+}
+export async function cancelLogicalTurn(
+  p: Platform,
+  u: UserContext,
+  input: TurnInput,
+): Promise<LogicalTurnStatus> {
+  const thread = await validateLogicalInput(p, u, input)
+  await p.db.batch([
+    p.db
+      .prepare(
+        `INSERT INTO ai_request_cancellations (owner_id, request_id, thread_id, kind, trigger_comment_id, source_revision) SELECT t.owner_id, ?, t.id, ?, ?, t.source_revision FROM owned_threads t WHERE t.owner_id = ? AND t.id = ? AND NOT EXISTS (SELECT 1 FROM ai_requests r WHERE r.owner_id = t.owner_id AND r.request_id = ? AND (r.thread_id <> t.id OR r.kind <> ? OR r.trigger_comment_id IS NOT ? OR r.source_revision <> t.source_revision)) ON CONFLICT DO NOTHING`,
+      )
+      .bind(
+        input.requestId,
+        input.kind,
+        input.triggerCommentId,
+        u.userId,
+        input.threadId,
+        input.requestId,
+        input.kind,
+        input.triggerCommentId,
+      ),
+    p.db
+      .prepare(
+        `UPDATE ai_turns SET status = 'cancelled', error_code = 'CANCELLED' WHERE owner_id = ? AND status IN ('reserved','running') AND EXISTS (SELECT 1 FROM ai_request_cancellations c WHERE c.owner_id = ? AND c.request_id = ? AND c.thread_id = ? AND c.kind = ? AND c.trigger_comment_id IS ? AND c.source_revision = ?) AND request_id IN (SELECT r.id FROM ai_requests r WHERE r.owner_id = ? AND r.thread_id = ? AND r.kind = ? AND ((r.kind = 'opening' AND r.source_revision = ?) OR (r.kind = 'reply' AND r.request_id = ? AND r.trigger_comment_id IS ?)))`,
+      )
+      .bind(
+        u.userId,
+        u.userId,
+        input.requestId,
+        input.threadId,
+        input.kind,
+        input.triggerCommentId,
+        thread.source_revision,
+        u.userId,
+        input.threadId,
+        input.kind,
+        thread.source_revision,
+        input.requestId,
+        input.triggerCommentId,
+      ),
+  ])
+  const identity = await p.db
+    .prepare(
+      'SELECT 1 FROM ai_request_cancellations WHERE owner_id = ? AND request_id = ? AND thread_id = ? AND kind = ? AND trigger_comment_id IS ? AND source_revision = ?',
+    )
+    .bind(
+      u.userId,
+      input.requestId,
+      input.threadId,
+      input.kind,
+      input.triggerCommentId,
+      thread.source_revision,
+    )
+    .first()
+  if (!identity)
+    throw new ApiError(
+      409,
+      'REQUEST_CONFLICT',
+      'Request identity does not match',
+    )
+  const row = await p.db
+    .prepare(
+      `SELECT a.id FROM ai_requests r JOIN ai_turns a ON a.request_id = r.id WHERE r.owner_id = ? AND r.thread_id = ? AND r.kind = ? AND ((r.kind = 'opening' AND r.source_revision = ?) OR (r.kind = 'reply' AND r.request_id = ? AND r.trigger_comment_id IS ?)) ORDER BY a.created_at DESC, a.rowid DESC LIMIT 1`,
+    )
+    .bind(
+      u.userId,
+      input.threadId,
+      input.kind,
+      thread.source_revision,
+      input.requestId,
+      input.triggerCommentId,
+    )
+    .first<{ id: string }>()
+  const turn = row ? await getTurn(p, u, row.id) : null
+  return { turn, cancelled: !turn || turn.status === 'cancelled' }
 }
 export async function getTurn(
   p: Platform,
@@ -87,7 +248,7 @@ export async function reserveTurn(
     p.db
       .prepare(
         `INSERT INTO ai_requests (id, owner_id, request_id, thread_id, kind, trigger_comment_id, source_revision, utc_day)
-      SELECT ?, ?, ?, t.id, ?, ?, t.source_revision, ? FROM owned_threads t WHERE t.id = ? AND t.owner_id = ? AND ${eligibility}
+      SELECT ?, ?, ?, t.id, ?, ?, t.source_revision, ? FROM owned_threads t WHERE t.id = ? AND t.owner_id = ? AND NOT EXISTS (SELECT 1 FROM ai_request_cancellations c WHERE c.owner_id = t.owner_id AND c.request_id = ?) AND ${eligibility}
       AND (SELECT count(*) FROM ai_allowances WHERE owner_id = ? AND utc_day = ? AND kind = ?) < CASE WHEN ? = 'opening' THEN 5 ELSE 30 END
       ON CONFLICT DO NOTHING`,
       )
@@ -100,6 +261,7 @@ export async function reserveTurn(
         day,
         input.threadId,
         u.userId,
+        input.requestId,
         ...bindings,
         u.userId,
         day,
@@ -116,6 +278,7 @@ export async function reserveTurn(
         `INSERT INTO ai_turns (id, request_id, owner_id, thread_id, status, lease_until, thread_revision, source_revision, settings_epoch, memory_epoch, created_at)
       SELECT ?, r.id, r.owner_id, r.thread_id, 'reserved', ?, t.revision, t.source_revision, s.settings_epoch, s.memory_epoch, ? FROM ai_requests r JOIN owned_threads t ON t.id = r.thread_id AND t.owner_id = r.owner_id JOIN account_settings s ON s.owner_id = r.owner_id
       WHERE r.owner_id = ? AND r.thread_id = ? AND r.kind = ? AND r.request_id = ? AND r.source_revision = t.source_revision AND (r.kind = 'opening' OR r.trigger_comment_id IS ?) AND ${eligibility}
+      AND NOT EXISTS (SELECT 1 FROM ai_request_cancellations c WHERE c.owner_id = r.owner_id AND c.request_id = r.request_id)
       AND NOT EXISTS (SELECT 1 FROM ai_turns prior WHERE prior.request_id = r.id AND prior.status NOT IN ('failed','stale'))
       ON CONFLICT DO NOTHING`,
       )
@@ -161,6 +324,18 @@ export async function reserveTurn(
     .bind(input.threadId, u.userId)
     .first()
   if (!thread) notFound()
+  const cancelled = await p.db
+    .prepare(
+      'SELECT 1 FROM ai_request_cancellations WHERE owner_id = ? AND request_id = ?',
+    )
+    .bind(u.userId, input.requestId)
+    .first()
+  if (cancelled)
+    throw new ApiError(
+      409,
+      'TURN_CANCELLED',
+      'Discussion request was cancelled',
+    )
   const settings = await p.db
     .prepare(
       'SELECT ai_enabled, consent_at FROM account_settings WHERE owner_id = ?',

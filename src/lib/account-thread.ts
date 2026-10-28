@@ -55,6 +55,7 @@ export type AppendCommentInput = {
 export type ThreadSnapshot = {
   thread: OwnedThread
   comments: Comment[]
+  isImported?: boolean
   readPostId: string | null
   readAt: string | null
 }
@@ -85,3 +86,4 @@ export type TurnState = {
   commentIds: string[]
   errorCode?: string
 }
+export type LogicalTurnStatus = { turn: TurnState | null; cancelled: boolean }

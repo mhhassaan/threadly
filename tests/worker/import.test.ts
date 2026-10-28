@@ -344,3 +344,22 @@ test('import rollback leaves no thread, posts, comments or resume marker', async
     await env.DB.prepare('DROP TRIGGER reject_import_test').run()
   }
 })
+
+test('snapshot_identifies_import_origin_without_using_dates', async () => {
+  const importedResponse = await call('/api/library', 'POST', {
+    migrationId: crypto.randomUUID(),
+    record: record(),
+  })
+  expect(importedResponse.status).toBe(201)
+  const imported = (await importedResponse.json()) as OwnedThread
+  expect(await (await call(threadPath(imported))).json()).toMatchObject({
+    isImported: true,
+  })
+  const createdResponse = await call('/api/library', 'POST', {
+    record: record(),
+  })
+  const created = (await createdResponse.json()) as OwnedThread
+  expect(await (await call(threadPath(created))).json()).toMatchObject({
+    isImported: false,
+  })
+})
