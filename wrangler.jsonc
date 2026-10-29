@@ -1,0 +1,24 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "threadly-local",
+  "main": "@tanstack/react-start/server-entry",
+  "compatibility_date": "2026-10-23",
+  "compatibility_flags": ["nodejs_compat"],
+  "dev": { "ip": "127.0.0.1", "port": 4173, "local_protocol": "http" },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "threadly-local",
+      "database_id": "00000000-0000-0000-0000-000000000000",
+      "migrations_dir": "drizzle/migrations",
+      "remote": false,
+    },
+  ],
+  "vars": {
+    "BETTER_AUTH_URL": "http://127.0.0.1:4173",
+    "EMAIL_TRANSPORT": "capture",
+    "RESEND_FROM": "Threadly <noreply@example.invalid>",
+    "AI_ENABLED": "false",
+    "AI_DAILY_SPEND_LIMIT_USD": "0",
+  },
+}

@@ -7,6 +7,7 @@ import {
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import type { ReactNode } from 'react'
 import styles from '../style.css?url'
+import { AccountProvider } from '../features/account/auth-client'
 export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
   {
     head: () => ({
@@ -55,7 +56,9 @@ function Root() {
   const { queryClient } = Route.useRouteContext()
   return (
     <QueryClientProvider client={queryClient}>
-      <Outlet />
+      <AccountProvider>
+        <Outlet />
+      </AccountProvider>
     </QueryClientProvider>
   )
 }

@@ -5,27 +5,37 @@
   "scripts": {
     "dev": "vite --host 127.0.0.1 --port 4173",
     "build": "vite build",
-    "preview": "vite preview --host 127.0.0.1 --port 4173",
+    "preview": "node scripts/preview.mjs",
     "typecheck": "tsc --noEmit",
     "check": "node --experimental-strip-types scripts/check.mjs",
     "format": "prettier --write src scripts vite.config.ts tsconfig.json package.json README.md",
-    "smoke": "node scripts/smoke.mjs"
+    "smoke": "node scripts/smoke.mjs",
+    "cf-typegen": "wrangler types --strict-vars false",
+    "test": "vitest run && node --test tests/unit/dev-mail.test.mjs",
+    "db:migrate": "wrangler d1 migrations apply DB --local",
+    "dev:mail": "node scripts/dev-mail.mjs"
   },
   "dependencies": {
     "@tanstack/react-query": "^5.104.5",
     "@tanstack/react-router": "^1.170.46",
     "@tanstack/react-start": "^1.169.4",
+    "better-auth": "1.7.14",
+    "drizzle-orm": "0.45.4",
     "react": "^19.3.1",
     "react-dom": "^19.3.1"
   },
   "devDependencies": {
+    "@cloudflare/vite-plugin": "1.65.0",
+    "@cloudflare/vitest-plugin": "1.4.8",
     "@types/node": "^26.6.5",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
     "@vitejs/plugin-react": "^6.1.2",
     "prettier": "^3.9.10",
     "typescript": "^7.0.2",
-    "vite": "^8.3.5"
+    "vite": "^8.3.5",
+    "vitest": "5.0.5",
+    "wrangler": "4.153.0"
   },
   "packageManager": "pnpm@11.25.0",
   "engines": {

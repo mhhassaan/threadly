@@ -1,0 +1,1 @@
+CREATE TABLE ai_request_cancellations (owner_id TEXT NOT NULL, request_id TEXT NOT NULL, thread_id TEXT NOT NULL, kind TEXT NOT NULL CHECK(kind IN ('opening','reply')), trigger_comment_id TEXT, source_revision INTEGER NOT NULL, PRIMARY KEY(owner_id, request_id), FOREIGN KEY(thread_id, owner_id) REFERENCES owned_threads(id, owner_id) ON DELETE CASCADE);

@@ -1,31 +1,18 @@
 import assert from 'node:assert/strict'
-import { spawn } from 'node:child_process'
-import { once } from 'node:events'
+import { startPreview, stopPreview } from './preview.mjs'
 import { setTimeout as delay } from 'node:timers/promises'
 const port = 4185
-const server = spawn(
-  process.execPath,
-  [
-    'node_modules/vite/bin/vite.js',
-    'preview',
-    '--host',
-    '127.0.0.1',
-    '--port',
-    String(port),
-    '--strictPort',
-  ],
-  { stdio: ['ignore', 'pipe', 'pipe'] },
-)
+const server = startPreview(port, { stdio: ['ignore', 'pipe', 'pipe'] })
 let output = ''
 server.stdout.on('data', (chunk) => (output += chunk))
 server.stderr.on('data', (chunk) => (output += chunk))
 const base = `http://127.0.0.1:${port}`
 try {
   let started = false
-  for (let i = 0; i < 100; i++) {
+  for (let i = 0; i < 300; i++) {
     if (server.exitCode !== null) throw Error('Preview exited: ' + output)
     try {
-      const response = await fetch(base)
+      const response = await fetch(base, { signal: AbortSignal.timeout(2000) })
       if (response.ok) {
         started = true
         break
@@ -34,7 +21,7 @@ try {
     await delay(100)
   }
   assert(started, 'Production preview starts')
-  const home = await fetch(base)
+  const home = await fetch(base, { signal: AbortSignal.timeout(2000) })
   assert.equal(home.status, 200)
   const html = await home.text()
   assert(
@@ -69,12 +56,25 @@ try {
     404,
   )
   assert.equal((await fetch(base + '/not-a-route')).status, 404)
+  for (const [path, method] of [
+    ['/api/library', 'GET'],
+    ['/api/library', 'POST'],
+    ['/api/threads/00000000-0000-4000-8000-000000000001', 'GET'],
+    ['/api/threads/00000000-0000-4000-8000-000000000001', 'PATCH'],
+    ['/api/threads/00000000-0000-4000-8000-000000000001', 'DELETE'],
+    ['/api/comments', 'POST'],
+  ]) {
+    const response = await fetch(base + path, { method })
+    // Local production preview intentionally has no production email credentials.
+    assert(
+      [401, 503].includes(response.status),
+      `${method} ${path} fails closed`,
+    )
+    assert.equal(response.headers.get('cache-control'), 'private, no-store')
+  }
   console.log(
-    'Passed: production SSR, reader routing, bundled assets, static fonts/brand, API address rejection and not-found handling.',
+    'Passed: production SSR, reader routing, bundled assets, static fonts/brand, API address rejection, private API authentication and not-found handling.',
   )
 } finally {
-  if (server.exitCode === null) {
-    server.kill()
-    await once(server, 'exit')
-  }
+  await stopPreview(server)
 }

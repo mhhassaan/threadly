@@ -3531,3 +3531,255 @@ html[data-motion-input='keyboard'] .source-panes > [role='tabpanel'] {
     height: auto;
   }
 }
+
+/* Account access shares the reader's colors and keeps forms comfortable on touch. */
+.account-page {
+  max-width: 540px;
+  padding-bottom: calc(40px + env(safe-area-inset-bottom, 0px));
+}
+.account-page h1 {
+  font-size: 30px;
+}
+.account-card {
+  padding: 28px;
+  margin: 22px 0;
+}
+.account-panel,
+.account-forms {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.account-panel h3 {
+  font:
+    600 21px/1.3 Manrope,
+    system-ui,
+    sans-serif;
+  margin: 20px 0 16px;
+}
+.account-form fieldset {
+  min-width: 0;
+  padding: 0;
+  margin: 0;
+  border: 0;
+}
+.account-field {
+  display: grid;
+  gap: 7px;
+  margin: 16px 0;
+  font-weight: 500;
+}
+.account-field input {
+  width: 100%;
+  min-width: 0;
+  min-height: 48px;
+  padding: 11px 12px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: var(--paper);
+  color: var(--ink);
+  font-size: 16px;
+}
+.account-field input[aria-invalid='true'] {
+  border-color: #ae413e;
+}
+.account-form .copy-primary {
+  width: 100%;
+  min-height: 46px;
+  margin: 8px 0;
+}
+.account-hint {
+  color: var(--muted);
+  font-size: 12px;
+}
+.account-notice {
+  padding: 12px 14px;
+  background: var(--soft, var(--paper));
+  border: 1px solid var(--line);
+  border-radius: 9px;
+}
+.account-sync-status {
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+.account-sync-status p {
+  margin: 6px 0;
+}
+.account-error {
+  color: var(--ink);
+  border-left: 3px solid #ae413e;
+  padding: 8px 12px;
+}
+.account-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 18px;
+  margin-top: 10px;
+}
+.account-links button,
+.account-discard {
+  min-height: 44px;
+  padding: 8px 0;
+  color: var(--green);
+  text-decoration: underline;
+  text-underline-offset: 4px;
+}
+.account-discard {
+  margin-top: 16px;
+}
+.account-back {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+}
+@media (max-width: 480px) {
+  .account-card {
+    padding: 20px;
+  }
+  .app-header nav:has(.account-nav) {
+    gap: 18px;
+  }
+}
+
+/* Private conversations share the reader's connected post layout. */
+.discussion-notice {
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--line, #cfd9de);
+  font-size: 13px;
+}
+.discussion-toolbar,
+.discussion-controls,
+.discussion-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.discussion-toolbar > span {
+  font-weight: 700;
+}
+.discussion-consent p {
+  line-height: 1.5;
+  margin: 8px 0;
+}
+.discussion-error p {
+  margin: 8px 0;
+}
+.post-discussion {
+  padding: 0 16px 8px 64px;
+  border-bottom: 1px solid var(--line, #cfd9de);
+}
+.discussion-heading {
+  font-size: 13px;
+  padding-top: 8px;
+}
+.discussion-comment {
+  display: flex;
+  gap: 10px;
+  padding: 12px 0 4px;
+  position: relative;
+}
+.discussion-comment.is-reply {
+  padding-left: 12px;
+  border-left: 2px solid var(--line, #cfd9de);
+}
+.discussion-avatar {
+  display: grid;
+  place-items: center;
+  flex: 0 0 30px;
+  height: 30px;
+  border-radius: 50%;
+  background: var(--soft, #e7e9ea);
+  color: var(--ink, #0f1419);
+  font-size: 13px;
+  font-weight: 700;
+}
+.discussion-comment-body {
+  min-width: 0;
+  flex: 1;
+}
+.discussion-comment-body p {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  line-height: 1.5;
+  margin: 4px 0;
+  font-size: 15px;
+}
+.discussion-author {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 14px;
+}
+.ai-label {
+  display: inline-block;
+  border: 1px solid currentColor;
+  border-radius: 4px;
+  padding: 1px 4px;
+  font-size: 10px;
+  line-height: 1.2;
+  font-weight: 700;
+}
+.discussion-parent,
+.discussion-sources {
+  font-size: 12px;
+}
+.discussion-sources blockquote {
+  margin: 8px 0;
+  padding-left: 10px;
+  border-left: 2px solid currentColor;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.discussion-replying {
+  font-size: 13px;
+}
+.post-discussion .thread-reply-composer {
+  margin: 0;
+  padding: 12px 0;
+  border: 0;
+}
+.post-discussion button,
+.discussion-notice button,
+.discussion-sources summary {
+  min-height: 36px;
+  touch-action: manipulation;
+}
+.post-discussion button:focus-visible,
+.discussion-notice button:focus-visible,
+.discussion-sources summary:focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: 3px;
+}
+@media (pointer: coarse) {
+  .post-discussion textarea {
+    font-size: 16px;
+  }
+  .post-discussion button,
+  .discussion-notice button,
+  .discussion-sources summary {
+    min-height: 44px;
+  }
+}
+@media (max-width: 480px) {
+  .post-discussion {
+    padding-left: 16px;
+  }
+}
+
+/* Keep later-post actions stationary when pointer focus reveals the character hint. */
+.reader-page .post:not(.first-post) .tweet-meta {
+  display: flex;
+  visibility: hidden;
+  min-height: 15px;
+  margin-top: 7px;
+}
+.reader-page .post:not(.first-post):focus-within .tweet-meta {
+  visibility: visible;
+}
+.discussion-avatar {
+  background: color-mix(in srgb, var(--ink) 10%, var(--paper));
+}

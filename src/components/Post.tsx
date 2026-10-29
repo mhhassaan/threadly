@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { mediaUrl, remoteUrl } from '../lib/thread'
 import type { Media, ThreadRecord, Reaction } from '../lib/thread'
+import { useReplyComposer } from '../features/account/reply-composer'
 const paths: Record<string, string> = {
   more: 'M5 12h.01M12 12h.01M19 12h.01',
   back: 'M19 12H5m7-7-7 7 7 7',
@@ -304,41 +305,50 @@ export function Post({
 }
 export function ThreadReplyComposer({
   onReply,
+  storageKey,
+  privateReply,
+  inputId = 'threadReply',
 }: {
-  onReply: (text: string) => void
+  onReply: (text: string) => void | Promise<boolean>
+  storageKey?: string
+  inputId?: string
+  privateReply?: boolean
 }) {
-  const [value, setValue] = useState('')
+  const { value, sending, change, submit } = useReplyComposer(
+    onReply,
+    storageKey,
+  )
   return (
     <form
       className="thread-reply-composer"
       onSubmit={(e) => {
         e.preventDefault()
-        if (value.trim()) {
-          onReply(value.trim())
-          setValue('')
-        }
+        void submit()
       }}
     >
       <div className="avatar" aria-label="Your profile picture">
         <Icon name="user" />
       </div>
-      <label className="sr-only" htmlFor="threadReply">
+      <label className="sr-only" htmlFor={inputId}>
         Post your reply
       </label>
       <textarea
-        id="threadReply"
+        id={inputId}
         placeholder="Post your reply"
-        aria-describedby="threadReplyHint"
+        aria-describedby={inputId + '-hint'}
         maxLength={2000}
+        disabled={sending}
         rows={1}
         value={value}
-        onChange={(e) => setValue(e.target.value)}
+        onChange={(e) => change(e.target.value)}
       />
-      <button type="submit" disabled={!value.trim()}>
+      <button type="submit" disabled={!value.trim() || sending}>
         Reply
       </button>
-      <span id="threadReplyHint" className="sr-only">
-        Replies are saved on this device and are not posted to X.
+      <span id={inputId + '-hint'} className="sr-only">
+        {privateReply
+          ? 'Replies are saved privately in your account. Failed replies stay editable until you retry.'
+          : 'Replies are saved on this device and are not posted to X.'}
       </span>
     </form>
   )

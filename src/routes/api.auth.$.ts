@@ -1,0 +1,9 @@
+import { createFileRoute } from '@tanstack/react-router'
+import { createAuth } from '../server/auth/auth'
+import { getPlatform } from '../server/platform'
+
+const handle = ({ request }: { request: Request }) =>
+  createAuth(getPlatform()).handler(request)
+export const Route = createFileRoute('/api/auth/$')({
+  server: { handlers: { GET: handle, POST: handle } },
+})
