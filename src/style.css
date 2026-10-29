@@ -3783,3 +3783,11 @@ html[data-motion-input='keyboard'] .source-panes > [role='tabpanel'] {
 .discussion-avatar {
   background: color-mix(in srgb, var(--ink) 10%, var(--paper));
 }
+
+.discussion-memory-button {
+  margin-inline-end: 12px;
+}
+.discussion-memory-quote {
+  font-size: 15px;
+  line-height: 1.5;
+}

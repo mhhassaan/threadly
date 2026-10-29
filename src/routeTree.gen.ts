@@ -15,6 +15,7 @@ import { Route as ApiArticleRouteImport } from './routes/api.article'
 import { Route as ApiCommentsRouteImport } from './routes/api.comments'
 import { Route as ApiLibraryRouteImport } from './routes/api.library'
 import { Route as ApiMediaRouteImport } from './routes/api.media'
+import { Route as ApiMemoryRouteImport } from './routes/api.memory'
 import { Route as ApiSettingsRouteImport } from './routes/api.settings'
 import { Route as ApiAiTurnsRouteImport } from './routes/api.ai.turns'
 import { Route as ApiAuthSplatRouteImport } from './routes/api.auth.$'
@@ -51,6 +52,11 @@ const ApiMediaRoute = ApiMediaRouteImport.update({
   path: '/api/media',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiMemoryRoute = ApiMemoryRouteImport.update({
+  id: '/api/memory',
+  path: '/api/memory',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiSettingsRoute = ApiSettingsRouteImport.update({
   id: '/api/settings',
   path: '/api/settings',
@@ -84,6 +90,7 @@ export interface FileRoutesByFullPath {
   '/api/comments': typeof ApiCommentsRoute
   '/api/library': typeof ApiLibraryRoute
   '/api/media': typeof ApiMediaRoute
+  '/api/memory': typeof ApiMemoryRoute
   '/api/settings': typeof ApiSettingsRoute
   '/api/ai/turns': typeof ApiAiTurnsRouteWithChildren
   '/api/auth/$': typeof ApiAuthSplatRoute
@@ -97,6 +104,7 @@ export interface FileRoutesByTo {
   '/api/comments': typeof ApiCommentsRoute
   '/api/library': typeof ApiLibraryRoute
   '/api/media': typeof ApiMediaRoute
+  '/api/memory': typeof ApiMemoryRoute
   '/api/settings': typeof ApiSettingsRoute
   '/api/ai/turns': typeof ApiAiTurnsRouteWithChildren
   '/api/auth/$': typeof ApiAuthSplatRoute
@@ -111,6 +119,7 @@ export interface FileRoutesById {
   '/api/comments': typeof ApiCommentsRoute
   '/api/library': typeof ApiLibraryRoute
   '/api/media': typeof ApiMediaRoute
+  '/api/memory': typeof ApiMemoryRoute
   '/api/settings': typeof ApiSettingsRoute
   '/api/ai/turns': typeof ApiAiTurnsRouteWithChildren
   '/api/auth/$': typeof ApiAuthSplatRoute
@@ -126,6 +135,7 @@ export interface FileRouteTypes {
     | '/api/comments'
     | '/api/library'
     | '/api/media'
+    | '/api/memory'
     | '/api/settings'
     | '/api/ai/turns'
     | '/api/auth/$'
@@ -139,6 +149,7 @@ export interface FileRouteTypes {
     | '/api/comments'
     | '/api/library'
     | '/api/media'
+    | '/api/memory'
     | '/api/settings'
     | '/api/ai/turns'
     | '/api/auth/$'
@@ -152,6 +163,7 @@ export interface FileRouteTypes {
     | '/api/comments'
     | '/api/library'
     | '/api/media'
+    | '/api/memory'
     | '/api/settings'
     | '/api/ai/turns'
     | '/api/auth/$'
@@ -166,6 +178,7 @@ export interface RootRouteChildren {
   ApiCommentsRoute: typeof ApiCommentsRoute
   ApiLibraryRoute: typeof ApiLibraryRoute
   ApiMediaRoute: typeof ApiMediaRoute
+  ApiMemoryRoute: typeof ApiMemoryRoute
   ApiSettingsRoute: typeof ApiSettingsRoute
   ApiAiTurnsRoute: typeof ApiAiTurnsRouteWithChildren
   ApiAuthSplatRoute: typeof ApiAuthSplatRoute
@@ -214,6 +227,13 @@ declare module '@tanstack/react-router' {
       path: '/api/media'
       fullPath: '/api/media'
       preLoaderRoute: typeof ApiMediaRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/memory': {
+      id: '/api/memory'
+      path: '/api/memory'
+      fullPath: '/api/memory'
+      preLoaderRoute: typeof ApiMemoryRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/settings': {
@@ -273,6 +293,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiCommentsRoute: ApiCommentsRoute,
   ApiLibraryRoute: ApiLibraryRoute,
   ApiMediaRoute: ApiMediaRoute,
+  ApiMemoryRoute: ApiMemoryRoute,
   ApiSettingsRoute: ApiSettingsRoute,
   ApiAiTurnsRoute: ApiAiTurnsRouteWithChildren,
   ApiAuthSplatRoute: ApiAuthSplatRoute,

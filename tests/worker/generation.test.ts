@@ -6,6 +6,7 @@ import imports from '../../drizzle/migrations/0004_import.sql?raw'
 import discussion from '../../drizzle/migrations/0005_discussion.sql?raw'
 import turns from '../../drizzle/migrations/0006_turns.sql?raw'
 import discussionUi from '../../drizzle/migrations/0007_discussion_ui.sql?raw'
+import memoryMigration from '../../drizzle/migrations/0009_memory.sql?raw'
 import openingAdmissions from '../../drizzle/migrations/0008_opening_admissions.sql?raw'
 import {
   saveThread,
@@ -56,6 +57,7 @@ beforeAll(async () => {
   await applyMigration(env.DB, turns)
   await applyMigration(env.DB, discussionUi)
   await applyMigration(env.DB, openingAdmissions)
+  await applyMigration(env.DB, memoryMigration)
 })
 beforeEach(async () => {
   await env.DB.prepare('DELETE FROM ai_usage').run()
@@ -109,6 +111,7 @@ function response() {
         finish_reason: 'stop',
         message: {
           content: JSON.stringify({
+            memoryUpdates: [],
             comments: [
               {
                 id: 'a',
@@ -254,7 +257,9 @@ test('three_replies_max', async () => {
         choices: [
           {
             finish_reason: 'stop',
-            message: { content: JSON.stringify({ comments }) },
+            message: {
+              content: JSON.stringify({ comments, memoryUpdates: [] }),
+            },
           },
         ],
       }),
@@ -286,7 +291,9 @@ test('opening_leaves_quiet_post', async () => {
         choices: [
           {
             finish_reason: 'stop',
-            message: { content: JSON.stringify({ comments }) },
+            message: {
+              content: JSON.stringify({ comments, memoryUpdates: [] }),
+            },
           },
         ],
       }),
@@ -343,7 +350,9 @@ test('guest_identity_persists_with_exchange', async () => {
         choices: [
           {
             finish_reason: 'stop',
-            message: { content: JSON.stringify({ comments: [reply] }) },
+            message: {
+              content: JSON.stringify({ memoryUpdates: [], comments: [reply] }),
+            },
           },
         ],
       }),
@@ -407,7 +416,9 @@ test('batch_parents_and_source_citations_persist_exactly_once', async () => {
         choices: [
           {
             finish_reason: 'stop',
-            message: { content: JSON.stringify({ comments }) },
+            message: {
+              content: JSON.stringify({ comments, memoryUpdates: [] }),
+            },
           },
         ],
       }),
@@ -475,7 +486,12 @@ test('delayed_finalization_after_database_lease_expiry_publishes_nothing_and_ret
         choices: [
           {
             finish_reason: 'stop',
-            message: { content: JSON.stringify({ comments: [comment] }) },
+            message: {
+              content: JSON.stringify({
+                memoryUpdates: [],
+                comments: [comment],
+              }),
+            },
           },
         ],
         usage: { prompt_tokens: 5, completion_tokens: 3 },

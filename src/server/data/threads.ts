@@ -52,6 +52,7 @@ export type CommentRow = {
   created_at: string
   turn_id: string | null
   passage_ids: string
+  used_memory_ids: string
 }
 export function commentDto(row: CommentRow): Comment {
   return {
@@ -66,6 +67,7 @@ export function commentDto(row: CommentRow): Comment {
     createdAt: row.created_at,
     turnId: row.turn_id,
     passageIds: JSON.parse(row.passage_ids),
+    usedMemoryIds: JSON.parse(row.used_memory_ids ?? '[]'),
   }
 }
 function threadDto(row: ThreadRow, posts: PostRow[]): OwnedThread {

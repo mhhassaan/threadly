@@ -28,6 +28,7 @@ const human = {
   createdAt: '',
   turnId: null,
   passageIds: [],
+  usedMemoryIds: [],
 }
 const complete = { id: 'attempt', status: 'complete', commentIds: [] }
 function setup(

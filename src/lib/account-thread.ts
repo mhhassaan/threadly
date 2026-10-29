@@ -44,6 +44,7 @@ export type Comment = {
   createdAt: string
   turnId: string | null
   passageIds: string[]
+  usedMemoryIds: string[]
 }
 export type AppendCommentInput = {
   id: string
@@ -87,3 +88,19 @@ export type TurnState = {
   errorCode?: string
 }
 export type LogicalTurnStatus = { turn: TurnState | null; cancelled: boolean }
+
+export type MemoryItem = {
+  id: string
+  personaId: string
+  text: string
+  evidenceIds: string[]
+  epoch: number
+  createdAt: string
+  evidence: {
+    id: string
+    threadId: string
+    postId: string
+    text: string
+    createdAt: string
+  }[]
+}

@@ -204,6 +204,7 @@ test('cloud edit retains its starting revision and includes progress without dup
         createdAt: '2026-10-01',
         turnId: null,
         passageIds: [],
+        usedMemoryIds: [],
       },
     ],
     readPostId: null,

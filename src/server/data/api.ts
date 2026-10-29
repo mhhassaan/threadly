@@ -1,3 +1,4 @@
+import { inspectMemories } from '../discussion/memory'
 import { getSettings, updateSettings } from './settings'
 import { runTurn } from '../discussion/generate'
 import {
@@ -265,5 +266,18 @@ export function handleAiTurn(
     if (request.method !== 'DELETE') unsupported()
     object(await body(request, platform), [])
     return json(await cancelTurn(platform, user, id))
+  })
+}
+
+export function handleMemory(
+  request: Request,
+  platform: Platform,
+): Promise<Response> {
+  return respond(async () => {
+    const user = await requireUser(request, platform)
+    if (request.method !== 'GET') unsupported()
+    const params = new URL(request.url).searchParams
+    if ([...params.keys()].some((key) => key !== 'id')) invalid()
+    return json(await inspectMemories(platform, user, params.getAll('id')))
   })
 }

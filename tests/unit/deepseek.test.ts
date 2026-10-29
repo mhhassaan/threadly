@@ -44,20 +44,18 @@ test('authentication_error_is_not_retried', async () => {
 test.each(['', '{', '{"comments":[] }'])(
   'empty_invalid_or_truncated_response_fails_without_retry',
   async (content) => {
-    const fetcher = vi
-      .fn()
-      .mockResolvedValue(
-        Response.json({
-          choices: [
-            {
-              finish_reason: content.startsWith('{"comments"')
-                ? 'length'
-                : 'stop',
-              message: { content },
-            },
-          ],
-        }),
-      )
+    const fetcher = vi.fn().mockResolvedValue(
+      Response.json({
+        choices: [
+          {
+            finish_reason: content.startsWith('{"comments"')
+              ? 'length'
+              : 'stop',
+            message: { content },
+          },
+        ],
+      }),
+    )
     vi.stubGlobal('fetch', fetcher)
     await expect(
       callDeepSeek(p, context, new AbortController().signal),
@@ -104,3 +102,22 @@ test('timeout_stops_provider_work', async () => {
   expect(fetcher).toHaveBeenCalledTimes(1)
   vi.useRealTimers()
 })
+
+test.each(['body', 'content', 'reported_tokens'])(
+  'oversize_provider_%s_fails_without_retry',
+  async (mode) => {
+    const payload: any = await good().json()
+    if (mode === 'body') payload.padding = 'x'.repeat(66000)
+    if (mode === 'content')
+      payload.choices[0].message.content = JSON.stringify({
+        comments: [{ text: 'x'.repeat(24000) }],
+      })
+    if (mode === 'reported_tokens') payload.usage.completion_tokens = 1201
+    const fetcher = vi.fn().mockResolvedValue(Response.json(payload))
+    vi.stubGlobal('fetch', fetcher)
+    await expect(
+      callDeepSeek(p, context, new AbortController().signal),
+    ).rejects.toThrow()
+    expect(fetcher).toHaveBeenCalledTimes(1)
+  },
+)
