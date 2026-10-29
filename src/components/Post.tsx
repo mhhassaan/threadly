@@ -307,9 +307,11 @@ export function ThreadReplyComposer({
   onReply,
   storageKey,
   privateReply,
+  inputId = 'threadReply',
 }: {
   onReply: (text: string) => void | Promise<boolean>
   storageKey?: string
+  inputId?: string
   privateReply?: boolean
 }) {
   const { value, sending, change, submit } = useReplyComposer(
@@ -327,13 +329,13 @@ export function ThreadReplyComposer({
       <div className="avatar" aria-label="Your profile picture">
         <Icon name="user" />
       </div>
-      <label className="sr-only" htmlFor="threadReply">
+      <label className="sr-only" htmlFor={inputId}>
         Post your reply
       </label>
       <textarea
-        id="threadReply"
+        id={inputId}
         placeholder="Post your reply"
-        aria-describedby="threadReplyHint"
+        aria-describedby={inputId + '-hint'}
         maxLength={2000}
         disabled={sending}
         rows={1}
@@ -343,7 +345,7 @@ export function ThreadReplyComposer({
       <button type="submit" disabled={!value.trim() || sending}>
         Reply
       </button>
-      <span id="threadReplyHint" className="sr-only">
+      <span id={inputId + '-hint'} className="sr-only">
         {privateReply
           ? 'Replies are saved privately in your account. Failed replies stay editable until you retry.'
           : 'Replies are saved on this device and are not posted to X.'}

@@ -17,6 +17,7 @@ import readingMigration from '../../drizzle/migrations/0003_reading.sql?raw'
 import importMigration from '../../drizzle/migrations/0004_import.sql?raw'
 import turnMigration from '../../drizzle/migrations/0006_turns.sql?raw'
 import discussionUi from '../../drizzle/migrations/0007_discussion_ui.sql?raw'
+import openingAdmissions from '../../drizzle/migrations/0008_opening_admissions.sql?raw'
 import { saveReadProgress, saveThread } from '../../src/server/data/threads'
 import { summarize } from '../../src/lib/summary'
 
@@ -124,6 +125,7 @@ beforeAll(async () => {
   await applyMigration(env.DB, importMigration)
   await applyMigration(env.DB, turnMigration)
   await applyMigration(env.DB, discussionUi)
+  await applyMigration(env.DB, openingAdmissions)
 })
 beforeEach(async () => {
   for (const table of [

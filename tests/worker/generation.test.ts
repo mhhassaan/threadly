@@ -6,6 +6,7 @@ import imports from '../../drizzle/migrations/0004_import.sql?raw'
 import discussion from '../../drizzle/migrations/0005_discussion.sql?raw'
 import turns from '../../drizzle/migrations/0006_turns.sql?raw'
 import discussionUi from '../../drizzle/migrations/0007_discussion_ui.sql?raw'
+import openingAdmissions from '../../drizzle/migrations/0008_opening_admissions.sql?raw'
 import {
   saveThread,
   getSnapshot,
@@ -54,6 +55,7 @@ beforeAll(async () => {
   await applyMigration(env.DB, discussion)
   await applyMigration(env.DB, turns)
   await applyMigration(env.DB, discussionUi)
+  await applyMigration(env.DB, openingAdmissions)
 })
 beforeEach(async () => {
   await env.DB.prepare('DELETE FROM ai_usage').run()
@@ -731,3 +733,272 @@ test('logical_opening_lookup_uses_thread_and_source_revision', async () => {
     (await cancelLogicalTurn(platform, user, otherRequest)).turn?.status,
   ).toBe('cancelled')
 })
+
+test('fresh_opening_after_cancel_keeps_old_alias_and_allowance', async () => {
+  const { reserveTurn, cancelLogicalTurn, getLogicalTurn } =
+    await import('../../src/server/discussion/turns')
+  const original = {
+    requestId: crypto.randomUUID(),
+    threadId: input.threadId,
+    kind: 'opening' as const,
+    triggerCommentId: null,
+  }
+  const first = await reserveTurn(platform, user, original)
+  await cancelLogicalTurn(platform, user, original)
+  const nextInput = { ...original, requestId: crypto.randomUUID() }
+  const second = await reserveTurn(platform, user, nextInput)
+  expect(second.id).not.toBe(first.id)
+  expect(second.status).toBe('reserved')
+  expect((await getLogicalTurn(platform, user, original)).turn?.id).toBe(
+    first.id,
+  )
+  expect((await cancelLogicalTurn(platform, user, original)).turn?.status).toBe(
+    'cancelled',
+  )
+  expect((await getTurn(platform, user, second.id)).status).toBe('reserved')
+  expect(
+    (
+      await env.DB.prepare('SELECT count(*) n FROM ai_allowances').first<{
+        n: number
+      }>()
+    )?.n,
+  ).toBe(1)
+  expect(
+    (
+      await env.DB.prepare('SELECT count(*) n FROM ai_usage').first<{
+        n: number
+      }>()
+    )?.n,
+  ).toBe(2)
+  expect(
+    (
+      await env.DB.prepare('SELECT count(*) n FROM ai_requests').first<{
+        n: number
+      }>()
+    )?.n,
+  ).toBe(1)
+  expect((await reserveTurn(platform, user, original)).id).toBe(first.id)
+})
+
+test('opening_alias_cannot_be_reused_for_another_thread_or_reply_and_completed_opening_dedupes', async () => {
+  const { reserveTurn, cancelLogicalTurn, getLogicalTurn } =
+    await import('../../src/server/discussion/turns')
+  const firstInput = {
+    requestId: crypto.randomUUID(),
+    threadId: input.threadId,
+    kind: 'opening' as const,
+    triggerCommentId: null,
+  }
+  await reserveTurn(platform, user, firstInput)
+  await cancelLogicalTurn(platform, user, firstInput)
+  const nextInput = { ...firstInput, requestId: crypto.randomUUID() }
+  const second = await reserveTurn(platform, user, nextInput)
+  await env.DB.prepare("UPDATE ai_turns SET status = 'complete' WHERE id = ?")
+    .bind(second.id)
+    .run()
+  const duplicate = await reserveTurn(platform, user, {
+    ...firstInput,
+    requestId: crypto.randomUUID(),
+  })
+  expect(duplicate.id).toBe(second.id)
+  expect((await getLogicalTurn(platform, user, firstInput)).turn?.status).toBe(
+    'cancelled',
+  )
+  await expect(
+    reserveTurn(platform, user, { ...input, requestId: nextInput.requestId }),
+  ).rejects.toMatchObject({ code: 'REQUEST_CONFLICT' })
+  const other = await saveThread(
+    platform,
+    user,
+    {
+      id: crypto.randomUUID(),
+      title: 'Other',
+      posts: ['Other'],
+      sourceUrl: '',
+      source: null,
+      media: [],
+      interactions: {},
+    },
+    null,
+  )
+  await expect(
+    getLogicalTurn(platform, user, { ...nextInput, threadId: other.id }),
+  ).rejects.toMatchObject({ code: 'REQUEST_CONFLICT' })
+  expect(
+    (
+      await env.DB.prepare('SELECT count(*) n FROM ai_usage').first<{
+        n: number
+      }>()
+    )?.n,
+  ).toBe(2)
+})
+
+test('opening_alias_racing_other_request_identity_does_not_spend_or_cancel_other_thread', async () => {
+  const { reserveTurn, cancelLogicalTurn } =
+    await import('../../src/server/discussion/turns')
+  const original = {
+    requestId: crypto.randomUUID(),
+    threadId: input.threadId,
+    kind: 'opening' as const,
+    triggerCommentId: null,
+  }
+  await reserveTurn(platform, user, original)
+  await cancelLogicalTurn(platform, user, original)
+  const other = await saveThread(
+    platform,
+    user,
+    {
+      id: crypto.randomUUID(),
+      title: 'Other',
+      posts: ['Other'],
+      sourceUrl: '',
+      source: null,
+      media: [],
+      interactions: {},
+    },
+    null,
+  )
+  const humanId = crypto.randomUUID()
+  await appendHumanComment(platform, user, {
+    id: humanId,
+    threadId: other.id,
+    postId: other.posts[0].id,
+    parentId: null,
+    text: 'Other question',
+  })
+  const next = { ...original, requestId: crypto.randomUUID() }
+  let intercepted = false
+  const racing = {
+    ...platform,
+    db: {
+      prepare: platform.db.prepare.bind(platform.db),
+      batch: async (statements: D1PreparedStatement[]) => {
+        if (!intercepted) {
+          intercepted = true
+          await reserveTurn(platform, user, {
+            requestId: next.requestId,
+            threadId: other.id,
+            kind: 'reply',
+            triggerCommentId: humanId,
+          })
+        }
+        return platform.db.batch(statements)
+      },
+    },
+  } as Platform
+  await expect(reserveTurn(racing, user, next)).rejects.toMatchObject({
+    code: 'REQUEST_CONFLICT',
+  })
+  await expect(cancelLogicalTurn(platform, user, next)).rejects.toMatchObject({
+    code: 'REQUEST_CONFLICT',
+  })
+  expect(
+    (
+      await env.DB.prepare('SELECT count(*) n FROM ai_usage').first<{
+        n: number
+      }>()
+    )?.n,
+  ).toBe(2)
+  expect(
+    (
+      await env.DB.prepare(
+        "SELECT count(*) n FROM ai_turns WHERE thread_id = ? AND status IN ('reserved','running')",
+      )
+        .bind(other.id)
+        .first<{ n: number }>()
+    )?.n,
+  ).toBe(1)
+  for (const table of [
+    'ai_requests',
+    'ai_allowances',
+    'ai_turns',
+    'ai_usage',
+  ]) {
+    expect(
+      (
+        await env.DB.prepare(`SELECT count(*) n FROM ${table}`).first<{
+          n: number
+        }>()
+      )?.n,
+    ).toBe(2)
+  }
+  expect(
+    await env.DB.prepare(
+      'SELECT 1 FROM ai_opening_admissions WHERE request_id = ?',
+    )
+      .bind(next.requestId)
+      .first(),
+  ).toBeNull()
+})
+
+test.each(['reply', 'opening'] as const)(
+  'opening_cancel_racing_%s_identity_does_not_poison_tombstone',
+  async (kind) => {
+    const { reserveTurn, cancelLogicalTurn, getLogicalTurn } =
+      await import('../../src/server/discussion/turns')
+    const original = {
+      requestId: crypto.randomUUID(),
+      threadId: input.threadId,
+      kind: 'opening' as const,
+      triggerCommentId: null,
+    }
+    await reserveTurn(platform, user, original)
+    await cancelLogicalTurn(platform, user, original)
+    const other = await saveThread(
+      platform,
+      user,
+      {
+        id: crypto.randomUUID(),
+        title: 'Other',
+        posts: ['Other'],
+        sourceUrl: '',
+        source: null,
+        media: [],
+        interactions: {},
+      },
+      null,
+    )
+    const humanId = crypto.randomUUID()
+    await appendHumanComment(platform, user, {
+      id: humanId,
+      threadId: other.id,
+      postId: other.posts[0].id,
+      parentId: null,
+      text: 'Other question',
+    })
+    const next = { ...original, requestId: crypto.randomUUID() }
+    const reply = {
+      requestId: next.requestId,
+      threadId: other.id,
+      kind,
+      triggerCommentId: kind === 'reply' ? humanId : null,
+    }
+    let intercepted = false
+    const racing = {
+      ...platform,
+      db: {
+        prepare: platform.db.prepare.bind(platform.db),
+        batch: async (statements: D1PreparedStatement[]) => {
+          if (!intercepted) {
+            intercepted = true
+            await reserveTurn(platform, user, reply)
+          }
+          return platform.db.batch(statements)
+        },
+      },
+    } as Platform
+    await expect(cancelLogicalTurn(racing, user, next)).rejects.toMatchObject({
+      code: 'REQUEST_CONFLICT',
+    })
+    expect((await getLogicalTurn(platform, user, reply)).turn?.status).toBe(
+      'reserved',
+    )
+    expect(
+      await env.DB.prepare(
+        'SELECT 1 FROM ai_request_cancellations WHERE request_id = ?',
+      )
+        .bind(next.requestId)
+        .first(),
+    ).toBeNull()
+  },
+)

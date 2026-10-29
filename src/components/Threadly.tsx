@@ -34,6 +34,12 @@ import { CloudLibrary } from '../features/account/CloudLibrary'
 import { useCloudReader } from '../features/account/useCloudReader'
 import { accountLibraryKey, saveCloudDraft } from '../features/account/library'
 import { draftKey } from '../features/account/auth-state'
+import { Discussion, ThreadDiscussion } from '../features/discussion/Discussion'
+import {
+  openingIntentKey,
+  moveOpeningIntent,
+  ConsentNotice,
+} from '../features/discussion/ConsentNotice'
 type Modal =
   | {
       kind: 'library' | 'appearance' | 'about' | 'export' | 'result' | 'account'
@@ -73,11 +79,21 @@ export function Threadly(props: ThreadlyProps) {
         </section>
       </main>
     )
-  return (
+  const view = (
     <ThreadlyView
       key={props.threadId ? account.user!.id + ':' + props.threadId : 'device'}
       {...props}
     />
+  )
+  return props.threadId ? (
+    <ThreadDiscussion
+      key={account.user!.id + ':' + props.threadId}
+      threadId={props.threadId}
+    >
+      {view}
+    </ThreadDiscussion>
+  ) : (
+    view
   )
 }
 function ThreadlyView({ readerToken, threadId, motion }: ThreadlyProps) {
@@ -87,6 +103,10 @@ function ThreadlyView({ readerToken, threadId, motion }: ThreadlyProps) {
   const currentOwner = useRef(owner)
   currentOwner.current = owner
   const [selectionMode, setSelectionMode] = useState(false)
+  const [discussionReply, setDiscussionReply] = useState<{
+    index: number
+    nonce: number
+  } | null>(null)
   const isReader = readerToken !== undefined || !!threadId
   const queryClient = useQueryClient()
   const [ready, setReady] = useState(false),
@@ -362,7 +382,16 @@ function ThreadlyView({ readerToken, threadId, motion }: ThreadlyProps) {
     }
     if (latestOwner.current !== currentOwner.current) return
     if (latestCloud.current) {
-      window.open('/?thread=' + latestCloud.current, '_blank')
+      const opened = window.open('/?thread=' + latestCloud.current, '_blank')
+      if (opened) {
+        try {
+          moveOpeningIntent(
+            sessionStorage,
+            opened.sessionStorage,
+            openingIntentKey(owner, latestCloud.current),
+          )
+        } catch {}
+      }
       return
     }
     const result = await saveCloudDraft(owner, data, null)
@@ -373,10 +402,25 @@ function ThreadlyView({ readerToken, threadId, motion }: ThreadlyProps) {
     }
     latestCloud.current = result.snapshot!.thread.id
     try {
+      sessionStorage.setItem(
+        openingIntentKey(owner, latestCloud.current),
+        'new',
+      )
+    } catch {}
+    try {
       sessionStorage.removeItem(draftKey(owner, 'generated'))
     } catch {}
     void queryClient.invalidateQueries({ queryKey: accountLibraryKey(owner) })
-    window.open('/?thread=' + latestCloud.current, '_blank')
+    const opened = window.open('/?thread=' + latestCloud.current, '_blank')
+    if (opened) {
+      try {
+        moveOpeningIntent(
+          sessionStorage,
+          opened.sessionStorage,
+          openingIntentKey(owner, latestCloud.current),
+        )
+      } catch {}
+    }
     setError('')
   }
   async function generate() {
@@ -478,13 +522,27 @@ function ThreadlyView({ readerToken, threadId, motion }: ThreadlyProps) {
         }
         latestCloud.current = result.snapshot!.thread.id
         try {
+          sessionStorage.setItem(
+            openingIntentKey(owner, latestCloud.current),
+            'new',
+          )
+        } catch {}
+        try {
           sessionStorage.removeItem(draftKey(generationOwner, 'generated'))
         } catch {}
         void queryClient.invalidateQueries({
           queryKey: accountLibraryKey(generationOwner),
         })
-        if (accountWindow)
+        if (accountWindow) {
+          try {
+            moveOpeningIntent(
+              sessionStorage,
+              accountWindow.sessionStorage,
+              openingIntentKey(generationOwner, latestCloud.current!),
+            )
+          } catch {}
           accountWindow.location.replace('/?thread=' + latestCloud.current)
+        }
         setNotice({
           blocked: !accountWindow,
           pointer: method.current === 'pointer',
@@ -1274,6 +1332,7 @@ function ThreadlyView({ readerToken, threadId, motion }: ThreadlyProps) {
                   </button>
                 </div>
                 <div id="thread" className="thread">
+                  {threadId && <ConsentNotice threadId={threadId} />}
                   {record.posts.map((_, i) => (
                     <Fragment key={record.id + ':' + i}>
                       <Post
@@ -1290,7 +1349,9 @@ function ThreadlyView({ readerToken, threadId, motion }: ThreadlyProps) {
                         }}
                         onReact={react}
                         onReply={(index) => {
-                          if (index === 0)
+                          if (threadId) {
+                            setDiscussionReply({ index, nonce: Date.now() })
+                          } else if (index === 0)
                             document.getElementById('threadReply')?.focus()
                           else setModal({ kind: 'reply', index })
                         }}
@@ -1317,7 +1378,26 @@ function ThreadlyView({ readerToken, threadId, motion }: ThreadlyProps) {
                             : 'Mark read through post ' + (i + 1)}
                         </button>
                       )}
-                      {i === 0 && (
+                      {threadId && cloud.query.data?.thread.posts[i] && (
+                        <div
+                          id={
+                            'discussion-post-' +
+                            cloud.query.data.thread.posts[i].id
+                          }
+                        >
+                          <Discussion
+                            threadId={threadId}
+                            postId={cloud.query.data.thread.posts[i].id}
+                            lead={i === 0}
+                            replyRequest={
+                              discussionReply?.index === i
+                                ? discussionReply.nonce
+                                : 0
+                            }
+                          />
+                        </div>
+                      )}
+                      {i === 0 && !threadId && (
                         <>
                           <ThreadReplyComposer
                             storageKey={

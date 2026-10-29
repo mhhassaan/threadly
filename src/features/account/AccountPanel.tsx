@@ -66,7 +66,7 @@ export function AccountPanel({
               {!user.verified && <AuthForms initialMode="verify" />}
               <p className="account-hint">
                 {user.verified
-                  ? 'Your private saved threads sync across devices. Import device copies from Saved threads when you choose. AI discussions are coming next.'
+                  ? 'Your private saved threads sync across devices. Import device copies from Saved threads when you choose. Private discussions stay with their threads.'
                   : 'Verify your email to use your private account library. You can keep creating and reading guest threads now.'}
               </p>
               <button

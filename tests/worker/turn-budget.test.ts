@@ -4,6 +4,7 @@ import { applyAuthMigrations, applyMigration } from './migrations'
 import reading from '../../drizzle/migrations/0003_reading.sql?raw'
 import turns from '../../drizzle/migrations/0006_turns.sql?raw'
 import discussionUi from '../../drizzle/migrations/0007_discussion_ui.sql?raw'
+import openingAdmissions from '../../drizzle/migrations/0008_opening_admissions.sql?raw'
 import {
   reserveTurn,
   cancelTurn,
@@ -49,6 +50,7 @@ beforeAll(async () => {
   await applyMigration(env.DB, reading)
   await applyMigration(env.DB, turns)
   await applyMigration(env.DB, discussionUi)
+  await applyMigration(env.DB, openingAdmissions)
 })
 beforeEach(async () => {
   vi.useRealTimers()
