@@ -437,10 +437,11 @@ export async function reserveTurn(
       .prepare(
         `INSERT INTO ai_opening_admissions (owner_id, request_id, canonical_id, turn_id)
       SELECT r.owner_id, ?, r.id, (SELECT CASE WHEN a.status = 'cancelled' THEN NULL ELSE a.id END FROM ai_turns a WHERE a.request_id = r.id ORDER BY a.created_at DESC, a.rowid DESC LIMIT 1)
-      FROM ai_requests r JOIN owned_threads t ON t.id = r.thread_id AND t.owner_id = r.owner_id WHERE r.owner_id = ? AND r.thread_id = ? AND r.kind = 'opening' AND r.source_revision = t.source_revision AND (r.request_id = ? OR COALESCE((SELECT a.status FROM ai_turns a WHERE a.request_id = r.id ORDER BY a.created_at DESC, a.rowid DESC LIMIT 1), '') NOT IN ('failed','stale')) AND NOT EXISTS (SELECT 1 FROM ai_request_cancellations c WHERE c.owner_id = r.owner_id AND c.request_id = ?) AND NOT EXISTS (SELECT 1 FROM ai_requests other WHERE other.owner_id = r.owner_id AND other.request_id = ? AND other.id <> r.id) ON CONFLICT DO NOTHING`,
+      FROM ai_requests r JOIN owned_threads t ON t.id = r.thread_id AND t.owner_id = r.owner_id WHERE ? = 'opening' AND r.owner_id = ? AND r.thread_id = ? AND r.kind = 'opening' AND r.source_revision = t.source_revision AND (r.request_id = ? OR COALESCE((SELECT a.status FROM ai_turns a WHERE a.request_id = r.id ORDER BY a.created_at DESC, a.rowid DESC LIMIT 1), '') NOT IN ('failed','stale')) AND NOT EXISTS (SELECT 1 FROM ai_request_cancellations c WHERE c.owner_id = r.owner_id AND c.request_id = ?) AND NOT EXISTS (SELECT 1 FROM ai_requests other WHERE other.owner_id = r.owner_id AND other.request_id = ? AND other.id <> r.id) ON CONFLICT DO NOTHING`,
       )
       .bind(
         input.requestId,
+        input.kind,
         u.userId,
         input.threadId,
         input.requestId,

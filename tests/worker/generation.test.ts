@@ -1002,3 +1002,104 @@ test.each(['reply', 'opening'] as const)(
     ).toBeNull()
   },
 )
+
+test.each(['busy', 'spend', 'settings'] as const)(
+  'denied_%s_reply_after_completed_opening_keeps_same_logical_retry',
+  async (denial) => {
+    const { reserveTurn, settleTurn } =
+      await import('../../src/server/discussion/turns')
+    const opening = await reserveTurn(platform, user, {
+      requestId: crypto.randomUUID(),
+      threadId: input.threadId,
+      kind: 'opening',
+      triggerCommentId: null,
+    })
+    await settleTurn(
+      platform,
+      user,
+      opening.id,
+      { inputTokens: 1, outputTokens: 1, estimatedCostMicros: null },
+      'complete',
+    )
+    let blocker: string | null = null
+    if (denial === 'busy')
+      blocker = (
+        await reserveTurn(platform, user, {
+          ...input,
+          requestId: crypto.randomUUID(),
+        })
+      ).id
+    if (denial === 'settings')
+      await updateSettings(platform, user, { aiEnabled: false })
+    const deniedPlatform =
+      denial === 'spend'
+        ? { ...platform, env: { ...platform.env, aiDailySpendLimitUsd: 0.001 } }
+        : platform
+    const tables = [
+      'ai_requests',
+      'ai_allowances',
+      'ai_turns',
+      'ai_usage',
+      'ai_opening_admissions',
+    ]
+    const counts = async () =>
+      Promise.all(
+        tables.map(
+          async (table) =>
+            (await env.DB.prepare(`SELECT count(*) n FROM ${table}`).first<{
+              n: number
+            }>())!.n,
+        ),
+      )
+    const before = await counts()
+    await expect(
+      reserveTurn(deniedPlatform, user, input),
+    ).rejects.toMatchObject({
+      code:
+        denial === 'busy'
+          ? 'AI_BUSY'
+          : denial === 'spend'
+            ? 'AI_LIMIT_REACHED'
+            : 'AI_DISABLED',
+    })
+    expect(await counts()).toEqual(before)
+    expect(
+      await env.DB.prepare(
+        'SELECT 1 FROM ai_opening_admissions WHERE owner_id = ? AND request_id = ?',
+      )
+        .bind(user.userId, input.requestId)
+        .first(),
+    ).toBeNull()
+    expect(
+      await env.DB.prepare(
+        'SELECT 1 FROM ai_requests WHERE owner_id = ? AND request_id = ?',
+      )
+        .bind(user.userId, input.requestId)
+        .first(),
+    ).toBeNull()
+    if (blocker) await cancelTurn(platform, user, blocker)
+    if (denial === 'settings')
+      await updateSettings(platform, user, { aiEnabled: true })
+    const retry = await reserveTurn(platform, user, input)
+    expect(retry.status).toBe('reserved')
+    expect(
+      (
+        await env.DB.prepare(
+          'SELECT request_id FROM ai_requests WHERE id = (SELECT request_id FROM ai_turns WHERE id = ?)',
+        )
+          .bind(retry.id)
+          .first<{ request_id: string }>()
+      )?.request_id,
+    ).toBe(input.requestId)
+    expect(
+      await env.DB.prepare(
+        'SELECT 1 FROM ai_opening_admissions WHERE owner_id = ? AND request_id = ?',
+      )
+        .bind(user.userId, input.requestId)
+        .first(),
+    ).toBeNull()
+    expect((await counts()).slice(0, 4)).toEqual(
+      before.slice(0, 4).map((n) => n + 1),
+    )
+  },
+)
