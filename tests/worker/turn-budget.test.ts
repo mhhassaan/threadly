@@ -1,3 +1,5 @@
+import privacyMigration from '../../drizzle/migrations/0010_privacy.sql?raw'
+import memoryMigration from '../../drizzle/migrations/0009_memory.sql?raw'
 import { env } from 'cloudflare:workers'
 import { beforeAll, beforeEach, expect, test, vi } from 'vitest'
 import { applyAuthMigrations, applyMigration } from './migrations'
@@ -51,6 +53,8 @@ beforeAll(async () => {
   await applyMigration(env.DB, turns)
   await applyMigration(env.DB, discussionUi)
   await applyMigration(env.DB, openingAdmissions)
+  await applyMigration(env.DB, memoryMigration)
+  await applyMigration(env.DB, privacyMigration)
 })
 beforeEach(async () => {
   vi.useRealTimers()

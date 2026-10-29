@@ -17,6 +17,7 @@ export const ownedThreads = sqliteTable(
     ownerId: text('owner_id')
       .notNull()
       .references(() => user.id, { onDelete: 'cascade' }),
+    openingBlocked: integer('opening_blocked').notNull().default(0),
     revision: integer('revision').notNull().default(1),
     sourceRevision: integer('source_revision').notNull().default(1),
     recordJson: text('record_json').notNull(),
@@ -264,4 +265,18 @@ export const memoryEvidence = sqliteTable(
     sourceRevision: integer('source_revision').notNull(),
   },
   (t) => [unique().on(t.memoryId, t.commentId)],
+)
+
+export const memorySuppressions = sqliteTable(
+  'memory_suppressions',
+  {
+    ownerId: text('owner_id')
+      .notNull()
+      .references(() => user.id, { onDelete: 'cascade' }),
+    personaId: text('persona_id').notNull(),
+    commentId: text('comment_id')
+      .notNull()
+      .references(() => comments.id, { onDelete: 'cascade' }),
+  },
+  (t) => [unique().on(t.ownerId, t.personaId, t.commentId)],
 )

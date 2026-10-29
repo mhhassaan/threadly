@@ -1,3 +1,4 @@
+import { PrivacyPanel } from './PrivacyPanel'
 import { useState } from 'react'
 import { AuthForms } from './AuthForms'
 import { useAccountStatus } from './auth-client'
@@ -69,6 +70,7 @@ export function AccountPanel({
                   ? 'Your private saved threads sync across devices. Import device copies from Saved threads when you choose. Private discussions stay with their threads.'
                   : 'Verify your email to use your private account library. You can keep creating and reading guest threads now.'}
               </p>
+              {user.verified && <PrivacyPanel key={user.id} owner={user.id} />}
               <button
                 className="secondary"
                 disabled={busy}

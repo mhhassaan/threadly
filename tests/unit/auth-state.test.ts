@@ -289,3 +289,39 @@ test('a current logout failure restores only its own session after clearing priv
   expect(cache.getQueryData(['account', 'alice', 'late'])).toBeUndefined()
   expect(drafts.getItem(draftKey('alice', 'reply'))).toBeNull()
 })
+
+test('guest_survives_account_delete_and_stale_delete_does_not_clear_new_owner', async () => {
+  const { createAccountTransitions } =
+    await import('../../src/features/account/account-transitions')
+  const cache = new QueryClient(),
+    drafts = storage(),
+    boundary = createAccountBoundary(cache, drafts)
+  let applied: string | null = null
+  const transitions = createAccountTransitions(boundary, {
+    applied: (id) => {
+      applied = id
+    },
+    expired() {},
+    broadcast() {},
+  })
+  transitions.apply('alice', 'a-session')
+  cache.setQueryData(['account', 'alice', 'private'], 'a')
+  drafts.setItem(draftKey('alice', 'reply'), 'a draft')
+  drafts.setItem('threadly-library', 'guest')
+  cache.setQueryData(['local-library'], ['guest'])
+  transitions.deleted('alice')
+  expect(applied).toBeNull()
+  transitions.apply('alice', 'a-session')
+  expect(applied).toBeNull()
+  expect(cache.getQueryData(['account', 'alice', 'private'])).toBeUndefined()
+  expect(drafts.getItem(draftKey('alice', 'reply'))).toBeNull()
+  transitions.apply('bob', 'b-session')
+  cache.setQueryData(['account', 'bob', 'private'], 'b')
+  drafts.setItem(draftKey('bob', 'reply'), 'b draft')
+  transitions.deleted('alice')
+  expect(applied).toBe('bob')
+  expect(cache.getQueryData(['account', 'bob', 'private'])).toBe('b')
+  expect(drafts.getItem(draftKey('bob', 'reply'))).toBe('b draft')
+  expect(cache.getQueryData(['local-library'])).toEqual(['guest'])
+  expect(drafts.getItem('threadly-library')).toBe('guest')
+})

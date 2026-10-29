@@ -119,6 +119,7 @@ export function createAuth(platform: Platform) {
       },
     },
     user: {
+      deleteUser: { enabled: false },
       additionalFields: {
         credentialGeneration: {
           type: 'number',

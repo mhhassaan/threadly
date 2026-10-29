@@ -37,6 +37,7 @@ type ThreadRow = {
   revision: number
   source_revision: number
   record_json: string
+  opening_blocked: number
   source_text: string | null
 }
 type PostRow = { id: string; text: string; position: number; revision: number }
@@ -123,6 +124,7 @@ export async function getSnapshot(
     thread: threadDto(row, results[1].results as PostRow[]),
     comments: (results[2].results as CommentRow[]).map(commentDto),
     isImported: results[4].results.length > 0,
+    openingBlocked: !!row.opening_blocked,
     readPostId: read?.post_id ?? null,
     readAt: read?.read_at ?? null,
   }

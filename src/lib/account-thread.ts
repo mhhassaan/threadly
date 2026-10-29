@@ -54,6 +54,7 @@ export type AppendCommentInput = {
   text: string
 }
 export type ThreadSnapshot = {
+  openingBlocked?: boolean
   thread: OwnedThread
   comments: Comment[]
   isImported?: boolean

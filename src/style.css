@@ -3791,3 +3791,13 @@ html[data-motion-input='keyboard'] .source-panes > [role='tabpanel'] {
   font-size: 15px;
   line-height: 1.5;
 }
+
+.privacy-panel { margin-block: 1.4rem; border-top: 1px solid var(--line); padding-top: 1rem; }
+.privacy-panel p { line-height: 1.5; }
+.privacy-actions { display: flex; flex-wrap: wrap; align-items: center; gap: .6rem; margin-block: .8rem; }
+.privacy-memories { padding-left: 1.2rem; }
+.privacy-memories li { margin-block: 1rem; }
+.privacy-memories blockquote { margin: .5rem 0; overflow-wrap: anywhere; }
+.privacy-confirm { border: 1px solid var(--line); border-radius: 8px; padding: 1rem; margin-block: 1rem; }
+.privacy-confirm label { display: grid; gap: .4rem; }
+@media (pointer: coarse) { .privacy-confirm input { font-size: 16px; } }

@@ -33,14 +33,14 @@ const dto = (r: Row): MemoryContext => ({
 })
 // Missing/deleted/edited evidence invalidates the whole item. A reset cutoff is
 // checked against evidence time, so copying an old quote cannot resurrect it.
-const validMemory = `s.memory_enabled = 1 AND m.epoch = s.memory_epoch
+const validStoredMemory = ` m.epoch = s.memory_epoch
  AND (SELECT count(*) FROM memory_evidence e JOIN comments c ON c.id = e.comment_id AND c.owner_id = m.owner_id
  JOIN owned_threads t ON t.id = c.thread_id AND t.owner_id = c.owner_id
  WHERE e.memory_id = m.id AND c.author_kind = 'human' AND c.text = m.text
  AND t.revision = e.thread_revision AND t.source_revision = e.source_revision
  AND (s.memory_reset_at IS NULL OR c.created_at > s.memory_reset_at)
  AND NOT EXISTS (SELECT 1 FROM memory_resets r WHERE r.owner_id = m.owner_id AND r.persona_id = m.persona_id AND c.created_at <= r.reset_at)) = json_array_length(m.evidence_ids)
- AND json_array_length(m.evidence_ids) = 1`
+ AND json_array_length(m.evidence_ids) = 1 AND NOT EXISTS(SELECT 1 FROM memory_suppressions x JOIN memory_evidence e ON e.comment_id=x.comment_id WHERE x.owner_id=m.owner_id AND x.persona_id=m.persona_id AND e.memory_id=m.id)`
 
 export async function getRelevantMemories(
   p: Platform,
@@ -59,7 +59,7 @@ export async function getRelevantMemories(
   if (!(await getSettings(p, u)).memoryEnabled) return []
   const rows = await p.db
     .prepare(
-      `SELECT m.* FROM participant_memories m JOIN account_settings s ON s.owner_id = m.owner_id WHERE m.owner_id = ? AND m.persona_id IN (${ids.map(() => '?').join(',')}) AND ${validMemory} ORDER BY m.created_at DESC, m.id LIMIT 200`,
+      `SELECT m.* FROM participant_memories m JOIN account_settings s ON s.owner_id = m.owner_id WHERE m.owner_id = ? AND m.persona_id IN (${ids.map(() => '?').join(',')}) AND s.memory_enabled = 1 AND ${validStoredMemory} ORDER BY m.created_at DESC, m.id LIMIT 200`,
     )
     .bind(u.userId, ...ids)
     .all<Row>()
@@ -81,13 +81,12 @@ export async function inspectMemories(
   ids: string[],
 ): Promise<InspectedMemory[]> {
   requireVerified(u)
-  if (!ids.length || ids.length > 4 || new Set(ids).size !== ids.length)
+  if (ids.length > 4 || new Set(ids).size !== ids.length)
     throw new ApiError(400, 'INVALID_INPUT', 'Invalid memory IDs')
   ids.forEach(uuid)
-  if (!(await getSettings(p, u)).memoryEnabled) return []
   const rows = await p.db
     .prepare(
-      `SELECT m.* FROM participant_memories m JOIN account_settings s ON s.owner_id = m.owner_id WHERE m.owner_id = ? AND m.id IN (${ids.map(() => '?').join(',')}) AND ${validMemory} AND EXISTS (SELECT 1 FROM comments used, json_each(used.used_memory_ids) refs WHERE used.owner_id = m.owner_id AND used.author_kind = 'ai' AND used.author_id = m.persona_id AND refs.value = m.id)`,
+      `SELECT m.* FROM participant_memories m JOIN account_settings s ON s.owner_id = m.owner_id WHERE m.owner_id = ? AND ${ids.length ? `m.id IN (${ids.map(() => '?').join(',')}) AND EXISTS (SELECT 1 FROM comments used, json_each(used.used_memory_ids) refs WHERE used.owner_id = m.owner_id AND used.author_kind = 'ai' AND used.author_id = m.persona_id AND refs.value = m.id)` : '1'} AND ${validStoredMemory} ORDER BY m.created_at DESC,m.id LIMIT 200`,
     )
     .bind(u.userId, ...ids)
     .all<Row>()
@@ -148,6 +147,7 @@ export function prepareMemoryUpdates(
       AND c.thread_id = a.thread_id AND c.author_kind = 'human' AND c.text = ?
       AND (s.memory_reset_at IS NULL OR c.created_at > s.memory_reset_at)
       AND NOT EXISTS (SELECT 1 FROM memory_resets r WHERE r.owner_id = s.owner_id AND r.persona_id = ? AND c.created_at <= r.reset_at)
+      AND NOT EXISTS(SELECT 1 FROM memory_suppressions x WHERE x.owner_id=s.owner_id AND x.persona_id=? AND x.comment_id=c.id)
       ON CONFLICT(owner_id, persona_id, epoch, text, evidence_ids) DO NOTHING`,
         )
         .bind(
@@ -162,6 +162,7 @@ export function prepareMemoryUpdates(
           turnId,
           marker,
           update.text,
+          update.personaId,
           update.personaId,
         ),
     )
@@ -182,7 +183,7 @@ export function memoryPublicationCheck(
 ): { sql: string; bindings: (string | number)[] } {
   if (!memories.length) return { sql: '1', bindings: [] }
   return {
-    sql: `(SELECT count(*) FROM participant_memories m JOIN account_settings s ON s.owner_id = m.owner_id WHERE m.owner_id = ? AND m.id IN (${memories.map(() => '?').join(',')}) AND ${validMemory}) = ?`,
+    sql: `(SELECT count(*) FROM participant_memories m JOIN account_settings s ON s.owner_id = m.owner_id WHERE m.owner_id = ? AND m.id IN (${memories.map(() => '?').join(',')}) AND s.memory_enabled = 1 AND ${validStoredMemory}) = ?`,
     bindings: [u.userId, ...memories.map((m) => m.id), memories.length],
   }
 }

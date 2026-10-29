@@ -2,6 +2,7 @@ import { useContext, useEffect, useRef, useState } from 'react'
 import { DiscussionContext } from './useDiscussion'
 import { useCloudThread } from '../account/library'
 import type { AccountSettings, ThreadSnapshot } from '../../lib/account-thread'
+import { accountRequest } from '../account/library'
 import { draftKey } from '../account/auth-state'
 export const openingIntentKey = (owner: string, threadId: string) =>
   draftKey(owner, 'new-opening:' + threadId)
@@ -22,6 +23,7 @@ export function shouldOpenDiscussion(
   return (
     intent &&
     snapshot?.isImported === false &&
+    !snapshot.openingBlocked &&
     !!settings?.aiEnabled &&
     !!settings.consentAt
   )
@@ -29,7 +31,8 @@ export function shouldOpenDiscussion(
 export function ConsentNotice({ threadId }: { threadId: string }) {
   const discussion = useContext(DiscussionContext)!
   const snapshot = useCloudThread(discussion.owner, threadId).data
-  const [details, setDetails] = useState(false)
+  const [details, setDetails] = useState(false),
+    [startError, setStartError] = useState('')
   const consumed = useRef(false),
     intent = useRef<boolean | null>(null)
   useEffect(() => {
@@ -78,9 +81,9 @@ export function ConsentNotice({ threadId }: { threadId: string }) {
             your account.
           </p>
           <p>
-            AI and memory are off by default. Cross-thread memory and privacy
-            controls are still being built; this version does not save AI
-            memories.
+            AI and memory are off by default. Manage stored memories and
+            deletion in your Account privacy controls. Providers and backups may
+            retain copies under their retention policies.
           </p>
           {!settings?.consentAt ? (
             <button
@@ -108,15 +111,17 @@ export function ConsentNotice({ threadId }: { threadId: string }) {
               {settings.aiEnabled ? 'Pause AI' : 'Enable AI'}
             </button>
           )}
-          {settings?.memoryEnabled && (
+          {settings?.consentAt && (
             <button
               className="text-button"
               disabled={discussion.settingsBusy}
               onClick={() =>
-                void discussion.updateSettings({ memoryEnabled: false })
+                void discussion.updateSettings({
+                  memoryEnabled: !settings.memoryEnabled,
+                })
               }
             >
-              Pause memory
+              {settings.memoryEnabled ? 'Pause memory' : 'Enable memory'}
             </button>
           )}
         </div>
@@ -131,20 +136,39 @@ export function ConsentNotice({ threadId }: { threadId: string }) {
         <div className="discussion-controls">
           <span>{settings.aiEnabled ? 'AI enabled' : 'AI paused'}</span>
           <button
+            id={'start-discussion-' + threadId}
             className="text-button"
             disabled={
               !settings.aiEnabled ||
               discussion.pending ||
               discussion.settingsBusy
             }
-            onClick={() =>
+            onClick={async () => {
+              if (snapshot?.openingBlocked) {
+                try {
+                  await accountRequest(
+                    '/api/comments',
+                    'PATCH',
+                    { threadId },
+                    undefined,
+                    discussion.owner,
+                  )
+                } catch (e) {
+                  setStartError(
+                    e instanceof Error
+                      ? e.message
+                      : 'Could not restart this discussion.',
+                  )
+                  return
+                }
+              }
               void discussion.generate({
                 requestId: crypto.randomUUID(),
                 threadId,
                 kind: 'opening',
                 triggerCommentId: null,
               })
-            }
+            }}
           >
             Start discussion
           </button>
@@ -164,6 +188,7 @@ export function ConsentNotice({ threadId }: { threadId: string }) {
           </button>
         </div>
       )}
+      {startError && <p role="alert">{startError}</p>}
       {(discussion.error || discussion.settingsError) && (
         <div role="status" className="discussion-error">
           <p>{discussion.error || discussion.settingsError}</p>

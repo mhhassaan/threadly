@@ -43,7 +43,19 @@ vi.mock('@tanstack/react-query', async (importOriginal) => ({
   useQueryClient: () => runtime.client,
 }))
 vi.mock('better-auth/react', () => ({
-  createAuthClient: () => ({ useSession: () => runtime.session }),
+  createAuthClient: () => ({
+    useSession: () => runtime.session,
+    $store: {
+      atoms: {
+        session: {
+          get: () => runtime.session,
+          set: (next: any) => {
+            runtime.session = { ...runtime.session, ...next }
+          },
+        },
+      },
+    },
+  }),
 }))
 
 type Host = {
@@ -220,4 +232,37 @@ test('obsolete_inspection_401_keeps_new_owner_and_unmount_aborts_old_request', a
     'Bob private reader',
   )
   expect(drafts.getItem(draftKey('bob', 'reply'))).toBe('Bob draft')
+})
+
+test('confirmed_deletion_clears_actual_session_atom_cache_and_drafts_even_if_refresh_fails', async () => {
+  const api = provider().props.value as any
+  drafts.setItem(draftKey('alice', 'reply'), 'Private draft')
+  drafts.setItem('threadly-library', 'Guest records')
+  runtime.client.setQueryData(['account', 'alice', 'thread'], 'Private reader')
+  runtime.session.refetch = vi.fn(async () => {
+    throw new Error('offline')
+  })
+  api.deleted('alice')
+  expect(runtime.session.data).toBeNull()
+  expect(provider().props.value.user).toBeNull()
+  expect(
+    runtime.client.getQueryData(['account', 'alice', 'thread']),
+  ).toBeUndefined()
+  expect(drafts.getItem(draftKey('alice', 'reply'))).toBeNull()
+  expect(drafts.getItem('threadly-library')).toBe('Guest records')
+})
+test('stale_confirmed_account_deletion_keeps_new_session_atom_and_private_cache', () => {
+  const aliceApi = provider().props.value as any
+  runtime.session = session('bob')
+  provider()
+  effects(providerHost)
+  drafts.setItem(draftKey('bob', 'reply'), 'Bob draft')
+  runtime.client.setQueryData(['account', 'bob', 'thread'], 'Bob private')
+  aliceApi.deleted('alice')
+  expect(runtime.session.data.user.id).toBe('bob')
+  expect(provider().props.value.user?.id).toBe('bob')
+  expect(drafts.getItem(draftKey('bob', 'reply'))).toBe('Bob draft')
+  expect(runtime.client.getQueryData(['account', 'bob', 'thread'])).toBe(
+    'Bob private',
+  )
 })

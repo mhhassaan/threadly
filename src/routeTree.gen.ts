@@ -11,6 +11,7 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as AccountRouteImport } from './routes/account'
+import { Route as ApiAccountRouteImport } from './routes/api.account'
 import { Route as ApiArticleRouteImport } from './routes/api.article'
 import { Route as ApiCommentsRouteImport } from './routes/api.comments'
 import { Route as ApiLibraryRouteImport } from './routes/api.library'
@@ -30,6 +31,11 @@ const IndexRoute = IndexRouteImport.update({
 const AccountRoute = AccountRouteImport.update({
   id: '/account',
   path: '/account',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiAccountRoute = ApiAccountRouteImport.update({
+  id: '/api/account',
+  path: '/api/account',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiArticleRoute = ApiArticleRouteImport.update({
@@ -86,6 +92,7 @@ const ApiAiTurnsTurnIdRoute = ApiAiTurnsTurnIdRouteImport.update({
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/account': typeof AccountRoute
+  '/api/account': typeof ApiAccountRoute
   '/api/article': typeof ApiArticleRoute
   '/api/comments': typeof ApiCommentsRoute
   '/api/library': typeof ApiLibraryRoute
@@ -100,6 +107,7 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/account': typeof AccountRoute
+  '/api/account': typeof ApiAccountRoute
   '/api/article': typeof ApiArticleRoute
   '/api/comments': typeof ApiCommentsRoute
   '/api/library': typeof ApiLibraryRoute
@@ -115,6 +123,7 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/account': typeof AccountRoute
+  '/api/account': typeof ApiAccountRoute
   '/api/article': typeof ApiArticleRoute
   '/api/comments': typeof ApiCommentsRoute
   '/api/library': typeof ApiLibraryRoute
@@ -131,6 +140,7 @@ export interface FileRouteTypes {
   fullPaths:
     | '/'
     | '/account'
+    | '/api/account'
     | '/api/article'
     | '/api/comments'
     | '/api/library'
@@ -145,6 +155,7 @@ export interface FileRouteTypes {
   to:
     | '/'
     | '/account'
+    | '/api/account'
     | '/api/article'
     | '/api/comments'
     | '/api/library'
@@ -159,6 +170,7 @@ export interface FileRouteTypes {
     | '__root__'
     | '/'
     | '/account'
+    | '/api/account'
     | '/api/article'
     | '/api/comments'
     | '/api/library'
@@ -174,6 +186,7 @@ export interface FileRouteTypes {
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AccountRoute: typeof AccountRoute
+  ApiAccountRoute: typeof ApiAccountRoute
   ApiArticleRoute: typeof ApiArticleRoute
   ApiCommentsRoute: typeof ApiCommentsRoute
   ApiLibraryRoute: typeof ApiLibraryRoute
@@ -199,6 +212,13 @@ declare module '@tanstack/react-router' {
       path: '/account'
       fullPath: '/account'
       preLoaderRoute: typeof AccountRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/account': {
+      id: '/api/account'
+      path: '/api/account'
+      fullPath: '/api/account'
+      preLoaderRoute: typeof ApiAccountRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/article': {
@@ -289,6 +309,7 @@ const ApiAiTurnsRouteWithChildren = ApiAiTurnsRoute._addFileChildren(
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AccountRoute: AccountRoute,
+  ApiAccountRoute: ApiAccountRoute,
   ApiArticleRoute: ApiArticleRoute,
   ApiCommentsRoute: ApiCommentsRoute,
   ApiLibraryRoute: ApiLibraryRoute,

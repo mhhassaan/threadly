@@ -1,3 +1,4 @@
+import privacyMigration from '../../drizzle/migrations/0010_privacy.sql?raw'
 import { env } from 'cloudflare:workers'
 import { afterEach, beforeAll, beforeEach, expect, test, vi } from 'vitest'
 import { fetchApp } from './helpers'
@@ -130,6 +131,7 @@ beforeAll(async () => {
   await applyMigration(env.DB, discussionUi)
   await applyMigration(env.DB, openingAdmissions)
   await applyMigration(env.DB, memoryMigration)
+  await applyMigration(env.DB, privacyMigration)
 })
 beforeEach(async () => {
   for (const table of [
@@ -730,7 +732,7 @@ test('memory_inspection_requires_verified_owner_session_and_owned_used_ids', asy
   expect((await call(path, 'GET', undefined, '')).status).toBe(401)
   expect((await call('/api/memory?id=invalid')).status).toBe(400)
   expect((await call(path + '&ownerId=' + aliceId)).status).toBe(400)
-  expect((await call('/api/memory')).status).toBe(400)
+  expect((await call('/api/memory')).status).toBe(200)
   expect((await call(path, 'POST', {})).status).toBe(405)
   await env.DB.prepare('UPDATE user SET email_verified = 0 WHERE id = ?')
     .bind(aliceId)

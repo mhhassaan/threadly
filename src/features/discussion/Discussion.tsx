@@ -1,3 +1,4 @@
+import { DeleteConversation } from './DeleteConversation'
 import { useLayoutEffect, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import {
@@ -33,6 +34,12 @@ export function Discussion({
   const discussion = useDiscussion(threadId, postId)
   const snapshot = useCloudThread(discussion.owner, threadId).data
   const comments = snapshot?.comments.filter((c) => c.postId === postId) ?? []
+  const previousCommentCount = useRef(comments.length)
+  useLayoutEffect(() => {
+    if (previousCommentCount.current > 0 && !comments.length)
+      document.getElementById('start-discussion-' + threadId)?.focus()
+    previousCommentCount.current = comments.length
+  }, [comments.length, threadId])
   const [expanded, setExpanded] = useState(lead)
   const focusReply = useRef(false)
   const cast = getCast(threadId)
@@ -60,6 +67,12 @@ export function Discussion({
             Discussion · {comments.length}{' '}
             {comments.length === 1 ? 'comment' : 'comments'}
           </span>
+          <DeleteConversation
+            owner={discussion.owner}
+            threadId={threadId}
+            postId={postId}
+            onDeleted={() => discussion.setReplyToId(null)}
+          />
           <button
             className="text-button"
             aria-expanded={expanded}
