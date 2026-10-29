@@ -137,6 +137,7 @@ test('expired_session_preserves_draft', async () => {
 test('ai_label_always_visible', () => {
   const markup = renderToStaticMarkup(
     createElement(CommentItem, {
+      owner: 'alice',
       comment: {
         ...human,
         id: 'ai',

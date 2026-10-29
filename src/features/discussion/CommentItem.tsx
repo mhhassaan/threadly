@@ -4,12 +4,14 @@ import { accountRequest } from '../account/library'
 import type { Comment, MemoryItem } from '../../lib/account-thread'
 import { splitSource } from '../../server/discussion/source'
 export function CommentItem({
+  owner,
   comment,
   name,
   parent,
   onReply,
   sourceText,
 }: {
+  owner: string
   comment: Comment
   name: string
   parent: Comment | null
@@ -43,6 +45,7 @@ export function CommentItem({
         'GET',
         undefined,
         controller.signal,
+        owner,
       )
       if (!controller.signal.aborted)
         setMemory({ loading: false, items, error: '' })

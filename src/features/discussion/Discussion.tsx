@@ -73,6 +73,7 @@ export function Discussion({
         {shown.map((comment) => (
           <CommentItem
             key={comment.id}
+            owner={discussion.owner}
             comment={comment}
             name={
               comment.authorKind === 'human'
