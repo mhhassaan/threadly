@@ -167,6 +167,20 @@ export async function restartDiscussion(
   // Explicit user action only. Remove opening metadata so the existing intent can
   // start once, while keeping anonymous spend and consumed daily allowances.
   const results = await p.db.batch([
+    // FK deletion removes old attempts/admissions, so retain every admitted
+    // opaque identity before removing its canonical row. A late operation must
+    // never become an unseen alias of the replacement opening.
+    p.db
+      .prepare(
+        `INSERT INTO ai_request_cancellations (owner_id,request_id,thread_id,kind,trigger_comment_id,source_revision)
+      SELECT r.owner_id,r.request_id,r.thread_id,r.kind,NULL,r.source_revision FROM ai_requests r JOIN owned_threads t ON t.id=r.thread_id AND t.owner_id=r.owner_id
+      WHERE r.owner_id=? AND r.thread_id=? AND r.kind='opening' AND t.opening_blocked=1
+      UNION
+      SELECT m.owner_id,m.request_id,r.thread_id,r.kind,NULL,r.source_revision FROM ai_opening_admissions m JOIN ai_requests r ON r.id=m.canonical_id AND r.owner_id=m.owner_id JOIN owned_threads t ON t.id=r.thread_id AND t.owner_id=r.owner_id
+      WHERE m.owner_id=? AND r.thread_id=? AND r.kind='opening' AND t.opening_blocked=1
+      ON CONFLICT DO NOTHING`,
+      )
+      .bind(u.userId, threadId, u.userId, threadId),
     p.db
       .prepare(
         "DELETE FROM ai_requests WHERE owner_id=? AND thread_id=? AND kind='opening' AND EXISTS(SELECT 1 FROM owned_threads WHERE id=? AND owner_id=? AND opening_blocked=1)",
@@ -178,7 +192,7 @@ export async function restartDiscussion(
       )
       .bind(threadId, u.userId),
   ])
-  if (!results[1].meta.changes) notFound()
+  if (!results[2].meta.changes) notFound()
 }
 export async function deleteAccount(
   p: Platform,

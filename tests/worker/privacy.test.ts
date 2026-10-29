@@ -733,3 +733,130 @@ test('memory_pause_during_provider_flight_cancels_without_stopping_history', asy
     (await getSnapshot(platform, user, input.threadId)).comments,
   ).toHaveLength(2)
 })
+
+async function restartFixture() {
+  const { reserveTurn } = await import('../../src/server/discussion/turns')
+  const original = {
+    requestId: crypto.randomUUID(),
+    threadId: input.threadId,
+    kind: 'opening' as const,
+    triggerCommentId: null,
+  }
+  const alias = { ...original, requestId: crypto.randomUUID() }
+  const first = await reserveTurn(platform, user, original)
+  expect((await reserveTurn(platform, user, alias)).id).toBe(first.id)
+  return { reserveTurn, original, alias, first }
+}
+test.each(['DELETE', 'POST'] as const)(
+  'restart keeps historical opening %s isolated from fresh attempt',
+  async (method) => {
+    const { reserveTurn, original, alias } = await restartFixture()
+    const { cancelLogicalTurn } =
+      await import('../../src/server/discussion/turns')
+    await privacy.deleteConversation(platform, user, input.threadId, post)
+    await privacy.restartDiscussion(platform, user, input.threadId)
+    const fresh = { ...original, requestId: crypto.randomUUID() },
+      attempt = await reserveTurn(platform, user, fresh)
+    if (method === 'DELETE')
+      expect(await cancelLogicalTurn(platform, user, alias)).toMatchObject({
+        turn: null,
+        cancelled: true,
+      })
+    else
+      await expect(reserveTurn(platform, user, alias)).rejects.toMatchObject({
+        code: 'TURN_CANCELLED',
+      })
+    expect((await getTurn(platform, user, attempt.id)).status).toBe('reserved')
+    await expect(reserveTurn(platform, user, original)).rejects.toMatchObject({
+      code: 'TURN_CANCELLED',
+    })
+    expect(
+      (
+        await env.DB.prepare(
+          'SELECT count(*) n FROM ai_request_cancellations WHERE owner_id=? AND request_id IN (?,?)',
+        )
+          .bind(user.userId, original.requestId, alias.requestId)
+          .first<{ n: number }>()
+      )?.n,
+    ).toBe(2)
+    expect(
+      (
+        await env.DB.prepare(
+          'SELECT count(*) n FROM ai_allowances WHERE owner_id=?',
+        )
+          .bind(user.userId)
+          .first<{ n: number }>()
+      )?.n,
+    ).toBe(2)
+    expect(
+      (
+        await env.DB.prepare('SELECT count(*) n FROM ai_usage WHERE owner_id=?')
+          .bind(user.userId)
+          .first<{ n: number }>()
+      )?.n,
+    ).toBe(2)
+    expect(
+      (await getSnapshot(platform, user, input.threadId)).thread.sourceRevision,
+    ).toBe(1)
+  },
+)
+test.each(['DELETE', 'POST'] as const)(
+  'old opening %s preflight before restart cannot attach after restart',
+  async (method) => {
+    const { reserveTurn, original, alias } = await restartFixture()
+    const { cancelLogicalTurn } =
+      await import('../../src/server/discussion/turns')
+    let ready!: () => void, release!: () => void
+    const reached = new Promise<void>((r) => {
+        ready = r
+      }),
+      held = new Promise<void>((r) => {
+        release = r
+      })
+    const delayed = {
+      ...platform,
+      db: new Proxy(platform.db, {
+        get(target, key) {
+          if (key === 'batch')
+            return async (statements: D1PreparedStatement[]) => {
+              ready()
+              await held
+              return target.batch(statements)
+            }
+          const value = Reflect.get(target, key)
+          return typeof value === 'function' ? value.bind(target) : value
+        },
+      }),
+    } as Platform
+    const old =
+      method === 'POST'
+        ? reserveTurn(delayed, user, alias)
+        : cancelLogicalTurn(delayed, user, alias)
+    // Register a rejection handler before releasing to avoid unhandled-rejection noise.
+    const result = old.then(
+      (value) => ({ value }),
+      (error) => ({ error }),
+    )
+    await reached
+    await privacy.deleteConversation(platform, user, input.threadId, post)
+    await privacy.restartDiscussion(platform, user, input.threadId)
+    const attempt = await reserveTurn(platform, user, {
+      ...original,
+      requestId: crypto.randomUUID(),
+    })
+    release()
+    const outcome = await result
+    if (method === 'POST')
+      expect(outcome).toMatchObject({ error: { code: 'TURN_CANCELLED' } })
+    else
+      expect(outcome).toMatchObject({ value: { turn: null, cancelled: true } })
+    expect((await getTurn(platform, user, attempt.id)).status).toBe('reserved')
+    expect(
+      (
+        await env.DB.prepare('SELECT count(*) n FROM ai_usage WHERE owner_id=?')
+          .bind(user.userId)
+          .first<{ n: number }>()
+      )?.n,
+    ).toBe(2)
+  },
+)
