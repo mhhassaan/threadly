@@ -8,6 +8,7 @@ import {
 import { inspectMemories } from '../discussion/memory'
 import { getSettings, updateSettings } from './settings'
 import { runTurn } from '../discussion/generate'
+import { getUsageStatus } from '../discussion/usage'
 import {
   cancelTurn,
   getTurn,
@@ -37,6 +38,17 @@ import {
 } from './validation'
 
 const privateHeaders = { 'Cache-Control': 'private, no-store' }
+export function handleUsage(
+  request: Request,
+  platform: Platform,
+): Promise<Response> {
+  return respond(async () => {
+    const user = await requireUser(request, platform)
+    if (request.method !== 'GET') unsupported()
+    if (new URL(request.url).search) invalid()
+    return json(await getUsageStatus(platform, user))
+  })
+}
 const maxBodyBytes = 1_048_576
 async function body(request: Request, platform: Platform): Promise<unknown> {
   if (request.headers.get('origin') !== new URL(platform.env.authUrl).origin)

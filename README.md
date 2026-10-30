@@ -2,45 +2,38 @@
 
 # Threadly
 
-Threadly turns articles, pasted text, and TXT or Markdown files into editable Twitter-style reading threads. It condenses the source while preserving complete thoughts and their original order.
+Threadly turns articles, pasted text, and TXT or Markdown files into editable reading threads. Source-based summaries work without an AI key. Verified accounts add private saved-thread sync and optional AI discussions powered by DeepSeek `deepseek-flash`.
 
 ## Features
 
-- Import a public article URL, paste text, or upload a TXT or Markdown file up to 1 MB.
-- Choose Quick read, Balanced, or Deep dive, with automatic thread length or a limit of 5, 10, or 20 posts.
-- Read the result in a separate tab or window, with source identity and article media when available.
-- Edit individual posts, copy a post or the complete thread, and download the thread as text.
-- Save all, individual, or selected posts as themed PNG images. Long exports are split into numbered PNG pages in a ZIP.
-- Save threads in a browser-local library. Reader content survives a refresh within its session.
-- Add local replies, likes, reposts, and bookmarks. These interactions do not publish to Twitter or X.
-- Choose White, Gray, Dim, Dark, or Paper themes, with custom background, card, and accent colors.
-- Use responsive layouts, keyboard-accessible controls, and reduced-motion support.
-
-## Current status
-
-Threadly currently uses extractive summarization: it selects connected passages from the source rather than generating new text with an LLM. Long sentences may exceed 280 characters to preserve a complete thought.
-
-The app runs on TanStack Start, TanStack Router, TanStack Query, React, and TypeScript. AI conversations about threads and individual posts remain a planned next phase; no LLM provider or API key is connected.
+- Import a public article URL, paste text, or upload TXT/Markdown up to 1 MB; choose summary depth and thread length.
+- Read in a separate tab/window, edit posts, copy or download text, and export all, individual, or selected posts as themed PNGs. Long exports become numbered PNG pages in a ZIP.
+- Keep a guest library on this device, or explicitly import chosen device copies into a verified account. Login never silently imports guest text.
+- Sync private account threads, source, edits, reading progress, reactions and discussions across devices. Revision conflicts preserve drafts for deliberate recovery.
+- Enable clearly labeled fictional AI participants after processing consent. Four recurring voices and thread-specific guests can respond; some posts remain quiet.
+- Inspect remembered quotes and supporting conversations, delete individual memories, reset a regular or all memory, pause AI/memory, delete conversations or remove the account using the current password.
+- Choose White, Gray, Dim, Dark or Paper, custom colors, keyboard controls and reduced-motion support. The X-style reader and local fonts remain intact.
 
 ## Run locally
 
-Requires Node.js 22.12 or newer (Node.js 24 recommended) and pnpm 11. The app does not require an AI API key.
+Requires Node.js 22.12+ and pnpm 11 (pinned version in package.json). No cloud resources or AI credentials are required for guest reading and deterministic checks.
 
 ```sh
 pnpm install --frozen-lockfile
+pnpm db:migrate
+pnpm dev:mail
+# In another terminal:
 pnpm dev
 ```
 
-Open [http://127.0.0.1:4173](http://127.0.0.1:4173). Stop the server with Ctrl+C. The Vite development server runs server code in local Cloudflare Workers, reloads source changes automatically, and listens only on the local machine. D1 binding `DB` uses local persisted storage under `.wrangler/`; its all-zero database ID is a placeholder and remote binding access is disabled.
-
-To build and preview the production app:
+Open [http://127.0.0.1:4173](http://127.0.0.1:4173). The local Workers server uses persisted local D1; remote bindings are disabled. Local email capture listens on loopback 4187 and writes ignored JSON files under `work/dev-mail`; open the captured file locally for its verification/reset link. It does not send email or expose a message-reading endpoint. Use a stable random `BETTER_AUTH_SECRET` in ignored `.dev.vars` to retain local sessions across restarts. See [setup and operating limits](docs/cloudflare-setup.md) for binding names, all migrations, recovery and production prerequisites.
 
 ```sh
 pnpm build
 pnpm preview
 ```
 
-Stop the development server before starting the production preview; both use port 4173. Rebuild after editing source if you are running the production preview.
+Preview uses loopback 4173 too; stop your own development server first. Rebuild after source changes. These commands neither deploy nor provision resources. Windows workerd requires a current Microsoft Visual C++ x64 runtime.
 
 ## Checks
 
@@ -50,121 +43,42 @@ pnpm check
 pnpm test
 pnpm build
 pnpm smoke
+pnpm evaluate:ai
 ```
 
-`pnpm smoke` starts a temporary production preview on port 4185 and checks server rendering, reader routing, assets, API address rejection, and 404 handling. Run it after building.
+Normal checks use synthetic fixtures, local D1 and fake provider/email responses. `pnpm test` includes actual Better Auth sessions and local Workers journeys; its temporary app is independent of your development server. Smoke starts an owned production preview on 4185 and tests SSR, reader routing, static assets, private APIs and private-address rejection. Build before smoke.
 
-The functional checks cover extraction, sentence continuity, summary depth and limits, media handling, themes, image wrapping, ZIP output, and rejection of private-address fetch targets. TypeScript checks the application and routes. Browser checks are still needed for layout, hydration, reader-window transfer, and exports; touch and keyboard behavior should also be checked on a physical device.
-
-`pnpm format` formats the source. The older `node scripts/build.mjs` and `node scripts/preview.mjs` commands remain as wrappers around the new build and preview.
-
-## Project structure
-
-```text
-src/
-  router.tsx            Typed TanStack router and per-request Query client
-  routes/
-    __root.tsx          HTML document, metadata, styles, Query provider
-    index.tsx           Dashboard/reader route with validated search state
-    api.article.ts      Article import server route
-    api.media.ts        Media proxy server route
-  components/           React dashboard, reader, posts, and dialogs
-  lib/
-    thread.ts           Thread types, storage compatibility, media helpers
-    summary.js          Source-based summarization
-    export.js           Canvas PNG and ZIP exports
-    appearance.ts       Theme API types
-  server/article.js     Article extraction and validated public fetches
-  style.css             Shared visual design and motion
-public/
-  appearance.js         Theme bootstrap before hydration
-  fonts/                Local fonts and provenance
-  brand/                Logo assets and design notes
-scripts/
-  check.mjs             Core functional regression checks
-vite.config.ts          TanStack Start and React configuration
-pnpm-lock.yaml          Reproducible dependency versions
-devlog.md               Project change history
-```
-
-`src/routeTree.gen.ts` is generated by TanStack Router; do not edit it manually. `dist/`, local package caches, and deployment identity are excluded from Git.
+`pnpm evaluate:ai` defaults to a network-free dry run. Live evaluation requires a separate explicit `--live`, credentials, a conservative cost reservation and user authorization; never run it in ordinary CI/smoke. [Evaluation instructions and qualification](docs/ai-evaluation.md) explain the caps, human rubric and unverified checks.
 
 ## Architecture
 
-React owns the UI and interaction state. TanStack Router validates reader and navigation parameters; existing `/?reader=...` links remain supported. TanStack Query coordinates article-import mutations and the browser-local saved-library cache, including cross-window invalidation.
+TanStack Start/Router/Query, React and TypeScript run on Cloudflare Workers with local/production D1 bindings and Better Auth 1.7.14. Article extraction/media proxy are server routes; extractive summarization and canvas export remain framework-independent modules. Drizzle migrations in `drizzle/migrations` define auth, ownership, turns, memory and deletion fences.
 
-Article extraction and the media proxy run in TanStack server routes. The summary and canvas-export engines remain framework-independent JavaScript modules. Original source text is retained in newly created thread records to support future source-grounded conversations. Existing saved records remain compatible; older records may not contain full source text.
+`src/server/auth` owns email/password identity; `src/server/data` owns verified owner authorization and persistence; `src/server/discussion` owns bounded context, turns, provider validation and memory. `src/features/account` and `src/features/discussion` provide the interface. `src/routeTree.gen.ts` is generated by TanStack Router; edit authored routes instead. `pnpm cf-typegen` regenerates Workers binding declarations after configuration changes.
 
-## Data and privacy
+## Privacy and processing
 
-Pasted text and uploaded text files are summarized in the browser. Article URLs are fetched by the server, and displayed source images may pass through the media proxy. The browser also requests Google Fonts for the supporting interface typography.
+Guest pasted/uploaded text is summarized in the browser. URL import fetches the article on the server; source images can use the media proxy. Fonts are served locally. Guest saved threads/appearance use local storage and active guest readers use session storage.
 
-Saved threads and appearance preferences use local storage; the active reader uses session storage. Verified email/password account endpoints are available on the server; the account interface, cloud synchronization and shared conversations are subsequent work. Avoid saving sensitive content on a shared device.
+Verified account saves store source, posts, comments and settings in Cloudflare D1. AI is separate and requires consent: relevant source passages, posts, comments and selected remembered quotes are sent by the server to DeepSeek. Private means other app users cannot access your content; processing is not exclusively on-device. Keys/passwords/full prompts are never browser configuration or application logs. Provider and backup retention are separate from application deletion.
 
-## Limitations
+Signout clears account browser caches/drafts and stops pending work, while guest records remain. Offline cached reading and local unsent drafts are supported; reconnect and deliberately retry. Drafts are not a background synchronization queue. Memory contains whole human quotes of at most 600 characters, linked to one supporting comment, rather than inferred personal profiles. Disabling model memory prevents its retrieval/writes; owner inspection and deletion remain available while paused. Reset cutoffs and evidence suppression prevent older history immediately recreating erased memories.
 
-- Paywalled, protected, or JavaScript-dependent articles may not import. Paste the text instead.
-- Summaries can omit context; the original source remains the reference.
-- Media playback depends on the source. Image exports use static images or media representations rather than playable audio or video.
-- Some remote images may be unavailable in exports.
-- Custom dropdown rendering varies by browser; standard native controls remain the fallback.
-- Popup blocking may require selecting Open thread after generation.
+## Limits and qualification
 
-## Hosting
+- Five discussion openings and 30 human-triggered AI turns per account per UTC day; one active turn per thread and three per account. Account shows remaining allowances. Status reads never generate. Failed attempts retain conservative spend reservations; retry does not repeatedly consume the same logical allowance.
+- Openings contain 0-4 comments on at most 3 posts and leave a quiet post when multiple exist; replies contain 1-3 comments with at most 2 speakers. No unattended or polling-triggered generation.
+- Context has a conservative 12000 input-token upper bound; provider output is capped at 1200 tokens, including at most 2 memory updates. Byte limits are conservative bounds, not measured token counts. Provider calls have one shared 45 second deadline and at most 1 transient retry.
+- Global AI-off, missing configuration, quotas and operator budget failures leave extractive summaries, reading and manual account comments available. Server-side atomic admission is authoritative; displayed status is advisory.
+- Summaries may omit context, and article claims are not independent verification. AI quality, wit, factual honesty and memory accuracy need authorized real-model review.
+- Paywalled/protected/JavaScript-dependent articles may need pasted text. Media playback and remote image exports depend on source availability; PNG uses static representations.
+- Popup blocking may require Open thread. Real phone behavior remains unverified.
+- Production Resend delivery, actual DeepSeek quality and deployed billed Workers CPU/free-tier feasibility remain unverified. Local CPU measurements are described in setup notes; secure password hashing was not weakened. An inherited Vite CSS source-map warning remains documented.
 
-`pnpm build` produces Cloudflare Workers server output and client assets under `dist/`. `pnpm preview` runs Wrangler with the generated `dist/server/wrangler.json` configuration, local bindings and assets on loopback. It does not deploy or create resources. Remote D1 provisioning, hosting changes and billing require a separate decision.
+Optional sharing with other real users is deferred; there are no public discussion permissions, invitations or multiplayer comments. Domain purchase, student offers, cloud provisioning, paid plans and deployment require a separate decision. Preserve the existing local `.openai/hosting.json` identity; prior hosting has not been redeployed by this work.
 
-The existing `.openai/hosting.json` remains local and unchanged. It is not needed for development or checks and is not copied into the new build. The prior hosted app has not been redeployed by this migration; preserve its identity when configuring a future deployment.
+## Fonts, assets and local files
 
-## Workers and local D1 foundation
+Jersey 25 is used for interface headings and Chirp for reading content. See [font sources and notices](public/fonts/FONT-SOURCES.md) and [brand provenance](public/brand/README.md). Chirp provenance does not grant redistribution rights. No project-wide software license is currently declared.
 
-Runtime tooling is pinned: `@cloudflare/vite-plugin` 1.65.0, Wrangler 4.153.0, `@cloudflare/vitest-plugin` 1.4.8, Vitest 5.0.5, and Drizzle ORM 0.45.4. Existing TanStack Start 1.169.4, Router 1.170.46 and Vite 8.3.5 are retained. The Cloudflare Vite plugin accepts Vite 8; the test plugin accepts Vitest 5. Their pinned transitive Miniflare 5 beta versions remain a compatibility consideration. The pnpm workspace permits only the `esbuild` and `workerd` installation scripts.
-
-The adapter follows the [official TanStack Workers configuration](https://developers.cloudflare.com/workers/framework-guides/web-apps/tanstack-start/): the Cloudflare plugin owns the `ssr` environment and uses `@tanstack/react-start/server-entry`. Tests use the [Workers Vitest integration](https://developers.cloudflare.com/workers/testing/vitest-integration/) and [Drizzle's D1 driver](https://orm.drizzle.team/docs/connect-cloudflare-d1). Guest routes and the existing browser-local library are preserved; the original runtime foundation added no accounts, email delivery, sync, or AI calls. The verified account service below now adds auth/email endpoints.
-
-```sh
-pnpm cf-typegen          # regenerate Worker bindings/runtime declarations after config changes
-pnpm db:migrate          # apply only local migrations from drizzle/migrations
-pnpm test               # Workers/D1/config tests and real guest routes on temporary port 4176
-```
-
-The migration directory contains `0001_auth.sql` and `0002_auth_fence.sql` for the verified account service. The command applies pending local migrations and safely reports when none remain. Worker declarations are generated by `wrangler types --strict-vars false` and included in TypeScript checks. `src/server/platform.ts` exposes `getPlatform()` only to server consumers, with the local `DB`, server configuration and `waitUntil`.
-
-`.env.example` contains placeholders for auth URL/secret, email capture/Resend, DeepSeek, the AI switch and daily spend ceiling. Copy it to ignored `.env` only if needed; never put credentials in browser variables or Git. Defaults select email capture, disable AI and set the spend ceiling to zero. Missing provider keys remain empty; future service code must enforce verification, credential and budget checks before any calls.
-
-On Windows, workerd requires a current Microsoft Visual C++ x64 runtime. This machine's older 14.28 runtime caused native startup access violations; after the separately approved update to 14.44.35211.0, Workers tests and preview started successfully. An installer can request a reboot even when the newly launched runtime already works.
-
-### Local CPU checkpoint
-
-After `pnpm build`, `node scripts/profile-worker.mjs` runs a bounded Windows-only measurement on temporary loopback port 4188. It measures the change in Windows `TotalProcessorTime` across only its owned workerd processes, after five warmup requests, over 100 sequential requests per workload. The extraction entry is test-only and makes no external fetches.
-
-| Workload                                                                  | Local Worker CPU batch total | Mean CPU/request | Mean wall time/request |
-| ------------------------------------------------------------------------- | ---------------------------: | ---------------: | ---------------------: |
-| Production dashboard SSR                                                  |                 1,140.625 ms |        11.406 ms |              14.366 ms |
-| Synthetic 999,552-byte HTML extraction, capped at 100,000 text characters |                 1,937.500 ms |        19.375 ms |              22.566 ms |
-
-Measured locally on 2026-10-27, Windows x64/Node 24.22.1, workerd 2026-10-23. These are warm batch means across the two local runtime processes, including helper/runtime/GC overhead; they are **not production billed CPU, latency percentiles, or a free-tier qualification**. Cold starts, production hardware and full upstream article fetching remain unmeasured; local password hashing measurements appear below. The CPU results warrant a later production feasibility check before choosing a paid plan or enabling billing. No billing or cloud resource was enabled by this work.
-
-## Fonts and asset attribution
-
-Jersey 25 is used for headings, navigation, and the footer; Chirp is used for thread content. Font sources and notices are in [public/fonts/FONT-SOURCES.md](public/fonts/FONT-SOURCES.md), including the Jersey 25 Open Font License. The supplied Chirp source does not include a license file; its provenance record does not grant redistribution rights.
-
-Brand assets and their provenance are documented in [public/brand/README.md](public/brand/README.md). This repository does not currently declare a project-wide software license; third-party notices retain their own terms.
-
-## Git hygiene
-
-The ignore rules exclude generated builds, dependencies, local environment files, hosting identity, editor files, and local agent/context folders. Source assets, attribution files, and this README are versioned. The devlog, local project context, agent instructions, and ignore rules stay local-only.
-
-If any excluded files were already committed in another checkout, `.gitignore` will not remove them from Git history. Review staged files before pushing.
-
-## Verified account service
-
-The server exposes Better Auth 1.7.14 email/password endpoints at `/api/auth/*`; the account interface is a subsequent task. Sign-in requires verified email. Protected server APIs use `requireUser`, which returns 401 for missing/expired sessions and 403 for unverified accounts. Sessions are read from D1 on each check, use HttpOnly/SameSite=Lax cookies (Secure over production HTTPS), and are revoked after password reset. Email verification/reset links expire after one hour; reset tokens are single use.
-
-For local development, run `pnpm db:migrate`, `pnpm dev:mail` in another terminal, and `pnpm dev`. Capture listens only on `127.0.0.1:4187` and saves JSON messages under ignored `work/dev-mail`; it has no message-reading HTTP endpoint and prints no links or recipients. Open the JSON file locally to obtain the link. Use a stable random `BETTER_AUTH_SECRET` in ignored local configuration to preserve sessions between restarts; otherwise development uses an ephemeral random secret. Local test fixtures use isolated ports 4176/4192.
-
-Capture is allowed only in a development build with a loopback auth URL. Production auth requires an HTTPS auth URL, a secret of at least 32 characters, `EMAIL_TRANSPORT=resend`, `RESEND_API_KEY` and `RESEND_FROM`; missing configuration fails closed. Resend delivery uses HTTPS, a bounded timeout, idempotency keys, response-status checks and Workers `waitUntil`. Provider failures leave accounts unverified. No credentials or real email sends are part of the test suite.
-
-Request limits are stored in D1: 100 requests/minute generally, 10 sign-in attempts/minute, and 5 signup/reset-request/verification-send attempts/minute per trusted client IP/path. Cloudflare's `CF-Connecting-IP` is the only accepted client IP header; absent IPs share a fallback bucket. D1 does not provide the adapter's interactive transactions: reset consumes its token and revokes sessions before writing the new password, so failures cannot leave a new password with old sessions. A later failure can require requesting another reset link. A server-only generation is captured before password verification and stamped on new sessions; D1 triggers atomically rotate it and delete sessions on password writes, and reject stale-generation inserts. This fences sign-ins overlapping reset across independent Workers. The shared application identity is `UserContext = { userId, verified }`, with email/name metadata.
-
-After building, `node scripts/profile-auth.mjs` measures secure default scrypt hash/verify in an isolated local Worker. On 2026-10-27, 40 requests after three warmups each measured 75.781 ms mean process CPU/hash and 74.219 ms/verify (82.771/88.022 ms wall). Parameters remain N=16384, r=16, p=1, 64-byte output. These local process counters include runtime/GC overhead and do not qualify production billed CPU. The result requires a production CPU/free-tier decision before hosting; hashing was not weakened and no paid plan was activated.
+Dependencies, builds, secrets, hosting identity, devlog, local project context and agent instructions remain local-only. Review explicit staged files before publishing; excluding a file does not remove it from earlier history.

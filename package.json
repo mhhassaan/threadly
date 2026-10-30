@@ -11,7 +11,8 @@
     "format": "prettier --write src scripts vite.config.ts tsconfig.json package.json README.md",
     "smoke": "node scripts/smoke.mjs",
     "cf-typegen": "wrangler types --strict-vars false",
-    "test": "vitest run && node --test tests/unit/dev-mail.test.mjs",
+    "test": "vitest run && node --test tests/unit/dev-mail.test.mjs tests/unit/ai-evaluation.test.mjs",
+    "evaluate:ai": "node scripts/ai-evaluation.mjs",
     "db:migrate": "wrangler d1 migrations apply DB --local",
     "dev:mail": "node scripts/dev-mail.mjs"
   },

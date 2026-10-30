@@ -331,12 +331,18 @@ test('offline_tone_review_fixtures', () => {
       'Article claims are not established facts',
     ],
   ] as const
-  for (const [, text, expectation] of fixtures) {
+  for (const [name, text, expectation] of fixtures) {
     const s = snapshot()
-    s.comments[0].text = text
+    if (name === 'source misinformation') s.thread.record.sourceText = text
+    else s.comments[0].text = text
     const c = context(s)
     expect(c.messages[0].content).toContain(expectation)
     expect(c.messages[1].content).toContain(text)
+    if (name === 'source misinformation') {
+      expect(c.messages[0].content).toContain('untrusted data')
+      expect(c.messages[1].content).toContain('Attribute article claims')
+      expect(c.allowedPassageIds.length).toBeGreaterThan(0)
+    }
   }
 })
 test('guest_identity_never_collides_with_regular_identity', () => {

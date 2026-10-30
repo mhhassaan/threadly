@@ -89,6 +89,12 @@ export type TurnState = {
   errorCode?: string
 }
 export type LogicalTurnStatus = { turn: TurnState | null; cancelled: boolean }
+export type AiUsageStatus = {
+  utcDay: string
+  opening: { limit: number; remaining: number }
+  reply: { limit: number; remaining: number }
+  availability: 'available' | 'paused' | 'unavailable' | 'busy'
+}
 
 export type MemoryItem = {
   id: string

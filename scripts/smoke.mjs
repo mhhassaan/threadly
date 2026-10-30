@@ -63,6 +63,12 @@ try {
     ['/api/threads/00000000-0000-4000-8000-000000000001', 'PATCH'],
     ['/api/threads/00000000-0000-4000-8000-000000000001', 'DELETE'],
     ['/api/comments', 'POST'],
+    ['/api/settings', 'GET'],
+    ['/api/memory', 'GET'],
+    ['/api/usage', 'GET'],
+    ['/api/ai/turns', 'POST'],
+    ['/api/ai/turns/00000000-0000-4000-8000-000000000001', 'GET'],
+    ['/api/ai/turns/00000000-0000-4000-8000-000000000001', 'DELETE'],
   ]) {
     const response = await fetch(base + path, { method })
     // Local production preview intentionally has no production email credentials.

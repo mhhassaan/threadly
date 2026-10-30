@@ -160,9 +160,9 @@ beforeEach(() => {
   drafts = storage()
   events = []
   const window = new EventTarget()
-  window.addEventListener('threadly:session-expired', (event) =>
-    events.push((event as CustomEvent).detail.owner),
-  )
+  window.addEventListener('threadly:session-expired', (event) => {
+    events.push((event as CustomEvent).detail.owner)
+  })
   vi.stubGlobal('window', window)
   vi.stubGlobal('sessionStorage', drafts)
   vi.stubGlobal('localStorage', storage())
