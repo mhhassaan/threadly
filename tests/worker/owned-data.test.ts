@@ -1,3 +1,4 @@
+import privacyMigration from '../../drizzle/migrations/0010_privacy.sql?raw'
 import { env } from 'cloudflare:workers'
 import { afterEach, beforeAll, beforeEach, expect, test, vi } from 'vitest'
 import { fetchApp } from './helpers'
@@ -12,11 +13,13 @@ import {
   handleThread,
   handleComments,
   handleSettings,
+  handleMemory,
 } from '../../src/server/data/api'
 import readingMigration from '../../drizzle/migrations/0003_reading.sql?raw'
 import importMigration from '../../drizzle/migrations/0004_import.sql?raw'
 import turnMigration from '../../drizzle/migrations/0006_turns.sql?raw'
 import discussionUi from '../../drizzle/migrations/0007_discussion_ui.sql?raw'
+import memoryMigration from '../../drizzle/migrations/0009_memory.sql?raw'
 import openingAdmissions from '../../drizzle/migrations/0008_opening_admissions.sql?raw'
 import { saveReadProgress, saveThread } from '../../src/server/data/threads'
 import { summarize } from '../../src/lib/summary'
@@ -90,6 +93,7 @@ function call(
     headers: { cookie, origin, 'content-type': contentType },
     ...(body === undefined ? {} : { body: JSON.stringify(body) }),
   })
+  if (path.startsWith('/api/memory')) return handleMemory(request, platform)
   if (path === '/api/settings') return handleSettings(request, platform)
   if (path.startsWith('/api/threads/'))
     return handleThread(request, platform, path.split('/').at(-1)!)
@@ -126,6 +130,8 @@ beforeAll(async () => {
   await applyMigration(env.DB, turnMigration)
   await applyMigration(env.DB, discussionUi)
   await applyMigration(env.DB, openingAdmissions)
+  await applyMigration(env.DB, memoryMigration)
+  await applyMigration(env.DB, privacyMigration)
 })
 beforeEach(async () => {
   for (const table of [
@@ -295,6 +301,7 @@ test('comment_idempotency', async () => {
     sequence: 1,
     turnId: null,
     passageIds: [],
+    usedMemoryIds: [],
   })
   expect(
     (await call('/api/comments', 'POST', { ...input, text: 'Changed payload' }))
@@ -673,4 +680,62 @@ test('logical_status_http_is_owner_scoped_read_only_and_private', async () => {
   expect(
     await env.DB.prepare('SELECT COUNT(*) AS n FROM ai_requests').first(),
   ).toEqual({ n: 0 })
+})
+
+test('memory_inspection_requires_verified_owner_session_and_owned_used_ids', async () => {
+  const thread = await create()
+  const evidence = comment(thread)
+  expect((await call('/api/comments', 'POST', evidence)).status).toBe(201)
+  expect(
+    (await call('/api/settings', 'PATCH', { memoryEnabled: true })).status,
+  ).toBe(200)
+  const memoryId = crypto.randomUUID(),
+    aiId = crypto.randomUUID()
+  const personaId = '10000000-0000-4000-8000-000000000001'
+  await env.DB.prepare(
+    'INSERT INTO participant_memories (id,owner_id,persona_id,text,evidence_ids,epoch,created_at,turn_id) VALUES (?,?,?,?,?,0,?,?)',
+  )
+    .bind(
+      memoryId,
+      aliceId,
+      personaId,
+      evidence.text,
+      JSON.stringify([evidence.id]),
+      new Date().toISOString(),
+      crypto.randomUUID(),
+    )
+    .run()
+  await env.DB.prepare('INSERT INTO memory_evidence VALUES (?,?,?,?)')
+    .bind(memoryId, evidence.id, thread.revision, thread.sourceRevision)
+    .run()
+  await env.DB.prepare(
+    "INSERT INTO comments (id,thread_id,post_id,owner_id,author_kind,author_id,text,sequence,created_at,used_memory_ids) VALUES (?,?,?,?,'ai',?,'Reply',2,?,?)",
+  )
+    .bind(
+      aiId,
+      thread.id,
+      thread.posts[0].id,
+      aliceId,
+      personaId,
+      new Date().toISOString(),
+      JSON.stringify([memoryId]),
+    )
+    .run()
+  const path = '/api/memory?id=' + memoryId
+  const response = await call(path)
+  expect(response.status).toBe(200)
+  expect(response.headers.get('cache-control')).toBe('private, no-store')
+  expect(((await response.json()) as any[])[0].evidence[0].text).toBe(
+    evidence.text,
+  )
+  expect(await (await call(path, 'GET', undefined, bob)).json()).toEqual([])
+  expect((await call(path, 'GET', undefined, '')).status).toBe(401)
+  expect((await call('/api/memory?id=invalid')).status).toBe(400)
+  expect((await call(path + '&ownerId=' + aliceId)).status).toBe(400)
+  expect((await call('/api/memory')).status).toBe(200)
+  expect((await call(path, 'POST', {})).status).toBe(405)
+  await env.DB.prepare('UPDATE user SET email_verified = 0 WHERE id = ?')
+    .bind(aliceId)
+    .run()
+  expect((await call(path)).status).toBe(403)
 })

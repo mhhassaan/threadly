@@ -37,6 +37,7 @@ type ThreadRow = {
   revision: number
   source_revision: number
   record_json: string
+  opening_blocked: number
   source_text: string | null
 }
 type PostRow = { id: string; text: string; position: number; revision: number }
@@ -52,6 +53,7 @@ export type CommentRow = {
   created_at: string
   turn_id: string | null
   passage_ids: string
+  used_memory_ids: string
 }
 export function commentDto(row: CommentRow): Comment {
   return {
@@ -66,6 +68,7 @@ export function commentDto(row: CommentRow): Comment {
     createdAt: row.created_at,
     turnId: row.turn_id,
     passageIds: JSON.parse(row.passage_ids),
+    usedMemoryIds: JSON.parse(row.used_memory_ids ?? '[]'),
   }
 }
 function threadDto(row: ThreadRow, posts: PostRow[]): OwnedThread {
@@ -121,6 +124,7 @@ export async function getSnapshot(
     thread: threadDto(row, results[1].results as PostRow[]),
     comments: (results[2].results as CommentRow[]).map(commentDto),
     isImported: results[4].results.length > 0,
+    openingBlocked: !!row.opening_blocked,
     readPostId: read?.post_id ?? null,
     readAt: read?.read_at ?? null,
   }
@@ -162,6 +166,49 @@ async function updateThread(
         expectedRevision,
       ),
   ]
+  // Synchronization revisions still advance for metadata saves. Rebase only
+  // matching evidence, behind THIS mutation's CAS, so stale evidence stays stale.
+  const contentFields = [
+    'id',
+    'date',
+    'title',
+    'posts',
+    'sourceUrl',
+    'source',
+    'media',
+    'sourceText',
+  ] as const
+  const embeddedReplies = (value: ThreadRecord) =>
+    current.posts.map(
+      (post) => value.interactions[post.position]?.replies ?? [],
+    )
+  const metadataOnly =
+    contentFields.every(
+      (field) =>
+        JSON.stringify(preserved[field]) ===
+        JSON.stringify(current.record[field]),
+    ) &&
+    JSON.stringify(embeddedReplies(preserved)) ===
+      JSON.stringify(embeddedReplies(current.record))
+  if (metadataOnly)
+    statements.push(
+      p.db
+        .prepare(
+          `UPDATE memory_evidence SET thread_revision = thread_revision + 1
+         WHERE thread_revision = ? AND source_revision = ?
+         AND comment_id IN (SELECT id FROM comments WHERE thread_id = ? AND owner_id = ?)
+         AND EXISTS (SELECT 1 FROM owned_threads WHERE id = ? AND owner_id = ? AND mutation_id = ?)`,
+        )
+        .bind(
+          expectedRevision,
+          current.sourceRevision,
+          current.id,
+          u.userId,
+          current.id,
+          u.userId,
+          mutation,
+        ),
+    )
   for (const post of current.posts) {
     const text = preserved.posts[post.position]
     if (post.text === text) continue

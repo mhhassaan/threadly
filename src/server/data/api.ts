@@ -1,5 +1,14 @@
+import {
+  clearMemory,
+  deleteMemoryItem,
+  deleteConversation,
+  restartDiscussion,
+  deleteAccount,
+} from './privacy'
+import { inspectMemories } from '../discussion/memory'
 import { getSettings, updateSettings } from './settings'
 import { runTurn } from '../discussion/generate'
+import { getUsageStatus } from '../discussion/usage'
 import {
   cancelTurn,
   getTurn,
@@ -29,6 +38,17 @@ import {
 } from './validation'
 
 const privateHeaders = { 'Cache-Control': 'private, no-store' }
+export function handleUsage(
+  request: Request,
+  platform: Platform,
+): Promise<Response> {
+  return respond(async () => {
+    const user = await requireUser(request, platform)
+    if (request.method !== 'GET') unsupported()
+    if (new URL(request.url).search) invalid()
+    return json(await getUsageStatus(platform, user))
+  })
+}
 const maxBodyBytes = 1_048_576
 async function body(request: Request, platform: Platform): Promise<unknown> {
   if (request.headers.get('origin') !== new URL(platform.env.authUrl).origin)
@@ -159,6 +179,24 @@ export function handleComments(
 ): Promise<Response> {
   return respond(async () => {
     const user = await requireUser(request, platform)
+    if (request.method === 'DELETE') {
+      const input = object(await body(request, platform), [
+        'threadId',
+        'postId',
+      ])
+      await deleteConversation(
+        platform,
+        user,
+        input.threadId as string,
+        input.postId as string,
+      )
+      return new Response(null, { status: 204, headers: privateHeaders })
+    }
+    if (request.method === 'PATCH') {
+      const input = object(await body(request, platform), ['threadId'])
+      await restartDiscussion(platform, user, input.threadId as string)
+      return new Response(null, { status: 204, headers: privateHeaders })
+    }
     if (request.method !== 'POST') unsupported()
     return json(
       await appendHumanComment(
@@ -265,5 +303,45 @@ export function handleAiTurn(
     if (request.method !== 'DELETE') unsupported()
     object(await body(request, platform), [])
     return json(await cancelTurn(platform, user, id))
+  })
+}
+
+export function handleMemory(
+  request: Request,
+  platform: Platform,
+): Promise<Response> {
+  return respond(async () => {
+    const user = await requireUser(request, platform)
+    if (request.method === 'DELETE') {
+      const input = object(await body(request, platform), ['id', 'personaId'])
+      if (input.id !== undefined && input.personaId !== undefined) invalid()
+      if (input.id !== undefined)
+        await deleteMemoryItem(platform, user, input.id as string)
+      else
+        await clearMemory(platform, user, input.personaId as string | undefined)
+      return new Response(null, { status: 204, headers: privateHeaders })
+    }
+    if (request.method !== 'GET') unsupported()
+    const params = new URL(request.url).searchParams
+    if ([...params.keys()].some((key) => key !== 'id')) invalid()
+    return json(await inspectMemories(platform, user, params.getAll('id')))
+  })
+}
+
+export function handleAccount(
+  request: Request,
+  platform: Platform,
+): Promise<Response> {
+  return respond(async () => {
+    const user = await requireUser(request, platform)
+    if (request.method !== 'DELETE') unsupported()
+    const input = object(await body(request, platform), ['password'])
+    // Keep origin/type/size validation shared, never log or persist this body.
+    await deleteAccount(
+      platform,
+      user,
+      new Request(request, { body: JSON.stringify(input) }),
+    )
+    return new Response(null, { status: 204, headers: privateHeaders })
   })
 }

@@ -136,9 +136,11 @@ function ThreadlyView({ readerToken, threadId, motion }: ThreadlyProps) {
     } | null>(null)
   const record = threadId ? cloud.record : deviceRecord
   const readerProblem =
-    threadId && cloud.query.error
-      ? cloud.query.error.message
-      : deviceReaderProblem
+    threadId && cloud.notFound
+      ? 'Thread not found.'
+      : threadId && cloud.query.error
+        ? cloud.query.error.message
+        : deviceReaderProblem
   const latestOwner = useRef(''),
     latestCloud = useRef<string | null>(null)
   const method = useRef('keyboard'),
@@ -277,6 +279,18 @@ function ThreadlyView({ readerToken, threadId, motion }: ThreadlyProps) {
       if (exportUrl.current) URL.revokeObjectURL(exportUrl.current)
     }
   }, [isReader, readerToken, queryClient, accept])
+  useEffect(() => {
+    if (threadId && cloud.notFound) {
+      recordRef.current = null
+      document.title = 'Your private thread — Threadly'
+      setModal(null)
+      setExportResult(null)
+      if (exportUrl.current) {
+        URL.revokeObjectURL(exportUrl.current)
+        exportUrl.current = null
+      }
+    }
+  }, [threadId, cloud.notFound])
   useEffect(() => {
     if (record) {
       recordRef.current = record
@@ -712,6 +726,7 @@ function ThreadlyView({ readerToken, threadId, motion }: ThreadlyProps) {
         indices,
         theme: window.ThreadlyAppearance.colors(),
       })
+      if (threadId && !recordRef.current) return
       if (exportUrl.current) URL.revokeObjectURL(exportUrl.current)
       const objectUrl = URL.createObjectURL(result.blob)
       exportUrl.current = objectUrl

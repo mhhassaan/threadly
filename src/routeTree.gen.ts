@@ -11,11 +11,14 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as AccountRouteImport } from './routes/account'
+import { Route as ApiAccountRouteImport } from './routes/api.account'
 import { Route as ApiArticleRouteImport } from './routes/api.article'
 import { Route as ApiCommentsRouteImport } from './routes/api.comments'
 import { Route as ApiLibraryRouteImport } from './routes/api.library'
 import { Route as ApiMediaRouteImport } from './routes/api.media'
+import { Route as ApiMemoryRouteImport } from './routes/api.memory'
 import { Route as ApiSettingsRouteImport } from './routes/api.settings'
+import { Route as ApiUsageRouteImport } from './routes/api.usage'
 import { Route as ApiAiTurnsRouteImport } from './routes/api.ai.turns'
 import { Route as ApiAuthSplatRouteImport } from './routes/api.auth.$'
 import { Route as ApiThreadsThreadIdRouteImport } from './routes/api.threads.$threadId'
@@ -29,6 +32,11 @@ const IndexRoute = IndexRouteImport.update({
 const AccountRoute = AccountRouteImport.update({
   id: '/account',
   path: '/account',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiAccountRoute = ApiAccountRouteImport.update({
+  id: '/api/account',
+  path: '/api/account',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiArticleRoute = ApiArticleRouteImport.update({
@@ -51,9 +59,19 @@ const ApiMediaRoute = ApiMediaRouteImport.update({
   path: '/api/media',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiMemoryRoute = ApiMemoryRouteImport.update({
+  id: '/api/memory',
+  path: '/api/memory',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiSettingsRoute = ApiSettingsRouteImport.update({
   id: '/api/settings',
   path: '/api/settings',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiUsageRoute = ApiUsageRouteImport.update({
+  id: '/api/usage',
+  path: '/api/usage',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiAiTurnsRoute = ApiAiTurnsRouteImport.update({
@@ -80,11 +98,14 @@ const ApiAiTurnsTurnIdRoute = ApiAiTurnsTurnIdRouteImport.update({
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/account': typeof AccountRoute
+  '/api/account': typeof ApiAccountRoute
   '/api/article': typeof ApiArticleRoute
   '/api/comments': typeof ApiCommentsRoute
   '/api/library': typeof ApiLibraryRoute
   '/api/media': typeof ApiMediaRoute
+  '/api/memory': typeof ApiMemoryRoute
   '/api/settings': typeof ApiSettingsRoute
+  '/api/usage': typeof ApiUsageRoute
   '/api/ai/turns': typeof ApiAiTurnsRouteWithChildren
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/api/threads/$threadId': typeof ApiThreadsThreadIdRoute
@@ -93,11 +114,14 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/account': typeof AccountRoute
+  '/api/account': typeof ApiAccountRoute
   '/api/article': typeof ApiArticleRoute
   '/api/comments': typeof ApiCommentsRoute
   '/api/library': typeof ApiLibraryRoute
   '/api/media': typeof ApiMediaRoute
+  '/api/memory': typeof ApiMemoryRoute
   '/api/settings': typeof ApiSettingsRoute
+  '/api/usage': typeof ApiUsageRoute
   '/api/ai/turns': typeof ApiAiTurnsRouteWithChildren
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/api/threads/$threadId': typeof ApiThreadsThreadIdRoute
@@ -107,11 +131,14 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/account': typeof AccountRoute
+  '/api/account': typeof ApiAccountRoute
   '/api/article': typeof ApiArticleRoute
   '/api/comments': typeof ApiCommentsRoute
   '/api/library': typeof ApiLibraryRoute
   '/api/media': typeof ApiMediaRoute
+  '/api/memory': typeof ApiMemoryRoute
   '/api/settings': typeof ApiSettingsRoute
+  '/api/usage': typeof ApiUsageRoute
   '/api/ai/turns': typeof ApiAiTurnsRouteWithChildren
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/api/threads/$threadId': typeof ApiThreadsThreadIdRoute
@@ -122,11 +149,14 @@ export interface FileRouteTypes {
   fullPaths:
     | '/'
     | '/account'
+    | '/api/account'
     | '/api/article'
     | '/api/comments'
     | '/api/library'
     | '/api/media'
+    | '/api/memory'
     | '/api/settings'
+    | '/api/usage'
     | '/api/ai/turns'
     | '/api/auth/$'
     | '/api/threads/$threadId'
@@ -135,11 +165,14 @@ export interface FileRouteTypes {
   to:
     | '/'
     | '/account'
+    | '/api/account'
     | '/api/article'
     | '/api/comments'
     | '/api/library'
     | '/api/media'
+    | '/api/memory'
     | '/api/settings'
+    | '/api/usage'
     | '/api/ai/turns'
     | '/api/auth/$'
     | '/api/threads/$threadId'
@@ -148,11 +181,14 @@ export interface FileRouteTypes {
     | '__root__'
     | '/'
     | '/account'
+    | '/api/account'
     | '/api/article'
     | '/api/comments'
     | '/api/library'
     | '/api/media'
+    | '/api/memory'
     | '/api/settings'
+    | '/api/usage'
     | '/api/ai/turns'
     | '/api/auth/$'
     | '/api/threads/$threadId'
@@ -162,11 +198,14 @@ export interface FileRouteTypes {
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AccountRoute: typeof AccountRoute
+  ApiAccountRoute: typeof ApiAccountRoute
   ApiArticleRoute: typeof ApiArticleRoute
   ApiCommentsRoute: typeof ApiCommentsRoute
   ApiLibraryRoute: typeof ApiLibraryRoute
   ApiMediaRoute: typeof ApiMediaRoute
+  ApiMemoryRoute: typeof ApiMemoryRoute
   ApiSettingsRoute: typeof ApiSettingsRoute
+  ApiUsageRoute: typeof ApiUsageRoute
   ApiAiTurnsRoute: typeof ApiAiTurnsRouteWithChildren
   ApiAuthSplatRoute: typeof ApiAuthSplatRoute
   ApiThreadsThreadIdRoute: typeof ApiThreadsThreadIdRoute
@@ -186,6 +225,13 @@ declare module '@tanstack/react-router' {
       path: '/account'
       fullPath: '/account'
       preLoaderRoute: typeof AccountRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/account': {
+      id: '/api/account'
+      path: '/api/account'
+      fullPath: '/api/account'
+      preLoaderRoute: typeof ApiAccountRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/article': {
@@ -216,11 +262,25 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiMediaRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/memory': {
+      id: '/api/memory'
+      path: '/api/memory'
+      fullPath: '/api/memory'
+      preLoaderRoute: typeof ApiMemoryRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/settings': {
       id: '/api/settings'
       path: '/api/settings'
       fullPath: '/api/settings'
       preLoaderRoute: typeof ApiSettingsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/usage': {
+      id: '/api/usage'
+      path: '/api/usage'
+      fullPath: '/api/usage'
+      preLoaderRoute: typeof ApiUsageRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/ai/turns': {
@@ -269,11 +329,14 @@ const ApiAiTurnsRouteWithChildren = ApiAiTurnsRoute._addFileChildren(
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AccountRoute: AccountRoute,
+  ApiAccountRoute: ApiAccountRoute,
   ApiArticleRoute: ApiArticleRoute,
   ApiCommentsRoute: ApiCommentsRoute,
   ApiLibraryRoute: ApiLibraryRoute,
   ApiMediaRoute: ApiMediaRoute,
+  ApiMemoryRoute: ApiMemoryRoute,
   ApiSettingsRoute: ApiSettingsRoute,
+  ApiUsageRoute: ApiUsageRoute,
   ApiAiTurnsRoute: ApiAiTurnsRouteWithChildren,
   ApiAuthSplatRoute: ApiAuthSplatRoute,
   ApiThreadsThreadIdRoute: ApiThreadsThreadIdRoute,

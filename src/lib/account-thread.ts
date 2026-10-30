@@ -44,6 +44,7 @@ export type Comment = {
   createdAt: string
   turnId: string | null
   passageIds: string[]
+  usedMemoryIds: string[]
 }
 export type AppendCommentInput = {
   id: string
@@ -53,6 +54,7 @@ export type AppendCommentInput = {
   text: string
 }
 export type ThreadSnapshot = {
+  openingBlocked?: boolean
   thread: OwnedThread
   comments: Comment[]
   isImported?: boolean
@@ -87,3 +89,25 @@ export type TurnState = {
   errorCode?: string
 }
 export type LogicalTurnStatus = { turn: TurnState | null; cancelled: boolean }
+export type AiUsageStatus = {
+  utcDay: string
+  opening: { limit: number; remaining: number }
+  reply: { limit: number; remaining: number }
+  availability: 'available' | 'paused' | 'unavailable' | 'busy'
+}
+
+export type MemoryItem = {
+  id: string
+  personaId: string
+  text: string
+  evidenceIds: string[]
+  epoch: number
+  createdAt: string
+  evidence: {
+    id: string
+    threadId: string
+    postId: string
+    text: string
+    createdAt: string
+  }[]
+}

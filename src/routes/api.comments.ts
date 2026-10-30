@@ -5,5 +5,5 @@ import { handleComments } from '../server/data/api'
 const handle = ({ request }: { request: Request }) =>
   handleComments(request, getPlatform())
 export const Route = createFileRoute('/api/comments')({
-  server: { handlers: { POST: handle } },
+  server: { handlers: { POST: handle, DELETE: handle, PATCH: handle } },
 })

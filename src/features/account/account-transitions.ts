@@ -19,6 +19,18 @@ export function createAccountTransitions(boundary: Boundary, view: View) {
     logoutOwner = null
   }
   return {
+    deleted(owner: string) {
+      boundary.logout(owner)
+      if (owner !== identity) return false
+      generation++
+      logoutOwner = null
+      view.applied(null)
+      view.expired(false)
+      view.broadcast(owner)
+      // Keep identity/session receipt so a stale refresh of this same deleted
+      // session cannot expose it again. A new account/session can still apply.
+      return true
+    },
     async remoteLogout(id: string, refetch: () => Promise<void>) {
       if (id !== boundary.owner() && id !== identity) {
         boundary.logout(id)

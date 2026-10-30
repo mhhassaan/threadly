@@ -24,6 +24,7 @@ type Account = {
   user: AccountUser | null
   pending: boolean
   signOut: () => Promise<void>
+  deleted: (owner: string) => void
 }
 type AccountStatus = Account & {
   unavailable: boolean
@@ -104,6 +105,25 @@ export function AccountProvider({ children }: { children: ReactNode }) {
     unavailable: !!session.error,
     expired,
     retry: () => session.refetch(),
+    deleted: (owner) => {
+      if (transitions.current?.deleted(owner)) {
+        confirmed.current = null
+        setRejectedSession(sessionId)
+        const atom = authClient.$store.atoms.session
+        const current = atom.get()
+        if (current.data?.user.id === owner)
+          atom.set({
+            ...current,
+            data: null,
+            error: null,
+            isPending: false,
+            isRefetching: false,
+          })
+        // Refetch cancels the pinned client's older session flight. Local identity
+        // and drafts are already gone even when this network request fails.
+        void session.refetch().catch(() => {})
+      }
+    },
     signOut: async () => {
       await transitions.current?.signOut(
         () => authClient.signOut(),

@@ -66,7 +66,33 @@ export async function callDeepSeek(
       }
       let payload: any
       try {
-        payload = await response.json()
+        const reader = response.body?.getReader()
+        if (!reader) throw failure()
+        const chunks: Uint8Array[] = []
+        let size = 0
+        try {
+          while (true) {
+            const chunk = await reader.read()
+            if (chunk.done) break
+            size += chunk.value.byteLength
+            if (size > 65536) {
+              await reader.cancel()
+              throw failure()
+            }
+            chunks.push(chunk.value)
+          }
+        } finally {
+          reader.releaseLock()
+        }
+        const bytes = new Uint8Array(size)
+        let offset = 0
+        for (const chunk of chunks) {
+          bytes.set(chunk, offset)
+          offset += chunk.byteLength
+        }
+        payload = JSON.parse(
+          new TextDecoder('utf-8', { fatal: true }).decode(bytes),
+        )
       } catch {
         throw failure()
       }
@@ -75,7 +101,10 @@ export async function callDeepSeek(
       if (
         choice?.finish_reason !== 'stop' ||
         typeof choice?.message?.content !== 'string' ||
-        !choice.message.content.trim()
+        !choice.message.content.trim() ||
+        new TextEncoder().encode(choice.message.content).byteLength > 24000 ||
+        (Number.isSafeInteger(payload?.usage?.completion_tokens) &&
+          payload.usage.completion_tokens > 1200)
       )
         throw failure()
       let exchange: unknown

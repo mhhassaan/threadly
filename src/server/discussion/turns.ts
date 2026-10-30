@@ -351,6 +351,20 @@ export async function reserveTurn(
   if (input.kind !== 'opening' && input.kind !== 'reply')
     throw new ApiError(400, 'INVALID_INPUT', 'Invalid turn kind')
   if (input.triggerCommentId !== null) uuid(input.triggerCommentId)
+  if (
+    input.kind === 'opening' &&
+    (await p.db
+      .prepare(
+        'SELECT 1 FROM owned_threads WHERE id=? AND owner_id=? AND opening_blocked=1',
+      )
+      .bind(input.threadId, u.userId)
+      .first())
+  )
+    throw new ApiError(
+      409,
+      'DISCUSSION_DELETED',
+      'This discussion was deleted. Choose Start discussion to begin again.',
+    )
   const { worst, ceiling } = budget(p)
   await assertAdmissionIdentity(p, u, input)
   const alias = await p.db
@@ -388,7 +402,7 @@ export async function reserveTurn(
   const lease = new Date(now.getTime() + 90_000).toISOString()
   const logical = crypto.randomUUID()
   const attempt = crypto.randomUUID()
-  const eligibility = `EXISTS (SELECT 1 FROM account_settings s WHERE s.owner_id = ? AND s.ai_enabled = 1 AND s.consent_at IS NOT NULL) AND (SELECT count(*) FROM ai_turns WHERE owner_id = ? AND status IN ('reserved','running')) < 3 AND NOT EXISTS (SELECT 1 FROM ai_turns WHERE owner_id = ? AND thread_id = ? AND status IN ('reserved','running')) AND COALESCE((SELECT sum(reserved_micros) FROM ai_usage WHERE utc_day = ?), 0) + ? <= ?`
+  const eligibility = `(t.opening_blocked=0 OR '${input.kind}'='reply') AND EXISTS (SELECT 1 FROM account_settings s WHERE s.owner_id = ? AND s.ai_enabled = 1 AND s.consent_at IS NOT NULL) AND (SELECT count(*) FROM ai_turns WHERE owner_id = ? AND status IN ('reserved','running')) < 3 AND NOT EXISTS (SELECT 1 FROM ai_turns WHERE owner_id = ? AND thread_id = ? AND status IN ('reserved','running')) AND COALESCE((SELECT sum(reserved_micros) FROM ai_usage WHERE utc_day = ?), 0) + ? <= ?`
   const bindings = [
     u.userId,
     u.userId,
@@ -487,13 +501,14 @@ export async function reserveTurn(
   await assertAdmissionIdentity(p, u, input)
   const row = await p.db
     .prepare(
-      `SELECT a.id, a.status, a.error_code, r.request_id AS logical_request_id FROM ai_requests r JOIN ai_turns a ON a.request_id = r.id JOIN owned_threads t ON t.id = r.thread_id AND t.owner_id = r.owner_id WHERE r.owner_id = ? AND r.thread_id = ? AND r.kind = ? AND ((r.kind = 'opening' AND r.source_revision = t.source_revision) OR (r.kind = 'reply' AND r.trigger_comment_id IS ? AND r.request_id = ?)) AND (r.kind <> 'opening' OR a.id = COALESCE((SELECT m.turn_id FROM ai_opening_admissions m WHERE m.owner_id = r.owner_id AND m.request_id = ?), a.id)) ORDER BY a.created_at DESC, a.rowid DESC LIMIT 1`,
+      `SELECT a.id, a.status, a.error_code, r.request_id AS logical_request_id FROM ai_requests r JOIN ai_turns a ON a.request_id = r.id JOIN owned_threads t ON t.id = r.thread_id AND t.owner_id = r.owner_id WHERE r.owner_id = ? AND r.thread_id = ? AND r.kind = ? AND ((r.kind = 'opening' AND r.source_revision = t.source_revision) OR (r.kind = 'reply' AND r.trigger_comment_id IS ? AND r.request_id = ?)) AND (r.kind <> 'opening' OR a.id = COALESCE((SELECT m.turn_id FROM ai_opening_admissions m WHERE m.owner_id = r.owner_id AND m.request_id = ?), a.id)) AND NOT EXISTS (SELECT 1 FROM ai_request_cancellations c WHERE r.kind = 'opening' AND c.owner_id = r.owner_id AND c.request_id = ? AND NOT EXISTS (SELECT 1 FROM ai_opening_admissions historical WHERE historical.owner_id = c.owner_id AND historical.request_id = c.request_id)) ORDER BY a.created_at DESC, a.rowid DESC LIMIT 1`,
     )
     .bind(
       u.userId,
       input.threadId,
       input.kind,
       input.triggerCommentId,
+      input.requestId,
       input.requestId,
       input.requestId,
     )

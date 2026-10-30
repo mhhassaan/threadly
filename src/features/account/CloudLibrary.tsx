@@ -1,5 +1,6 @@
+import { erasePrivateDrafts } from './private-drafts'
 import { useQueryClient } from '@tanstack/react-query'
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { ThreadRecord } from '../../lib/thread'
 import { ImportLocalThreads } from './ImportLocalThreads'
 import {
@@ -18,23 +19,41 @@ export function CloudLibrary({
 }) {
   const library = useCloudLibrary(owner),
     client = useQueryClient()
-  const [error, setError] = useState('')
+  const [error, setError] = useState(''),
+    [deleting, setDeleting] = useState<string | null>(null),
+    [busy, setBusy] = useState(false)
+  const heading = useRef<HTMLHeadingElement>(null)
+  const cancel = useRef<HTMLButtonElement>(null),
+    trigger = useRef<HTMLElement | null>(null)
+  useEffect(() => {
+    if (deleting) cancel.current?.focus()
+  }, [deleting])
   async function remove(id: string) {
+    setBusy(true)
+    setError('')
     try {
       await accountRequest('/api/threads/' + id, 'DELETE', {}, undefined, owner)
+      erasePrivateDrafts({ owner, threadId: id })
+      await client.cancelQueries({ queryKey: accountThreadKey(owner, id) })
       client.removeQueries({ queryKey: accountThreadKey(owner, id) })
       void client.invalidateQueries({ queryKey: accountLibraryKey(owner) })
+      setDeleting(null)
+      requestAnimationFrame(() => heading.current?.focus())
     } catch (reason) {
       setError(
         reason instanceof Error
           ? reason.message
           : 'Could not delete this thread.',
       )
+    } finally {
+      setBusy(false)
     }
   }
   return (
     <>
-      <h3>Private account library</h3>
+      <h3 ref={heading} tabIndex={-1}>
+        Private account library
+      </h3>
       <p>Saved threads sync across your signed-in devices.</p>
       {library.isPending && <p role="status">Loading your library…</p>}
       {library.error && (
@@ -42,6 +61,36 @@ export function CloudLibrary({
           Connection unavailable. Cached threads remain readable.{' '}
           <button onClick={() => void library.refetch()}>Retry library</button>
         </p>
+      )}
+      {deleting && (
+        <section className="privacy-confirm" aria-label="Delete saved thread">
+          <h4>Delete saved account thread?</h4>
+          <p>
+            This permanently removes its source, posts, discussion, reading
+            progress and supported memories. Device guest copies are kept.
+          </p>
+          <div className="privacy-actions">
+            <button
+              ref={cancel}
+              className="secondary"
+              disabled={busy}
+              onClick={() => {
+                setDeleting(null)
+                setError('')
+                requestAnimationFrame(() => trigger.current?.focus())
+              }}
+            >
+              Cancel
+            </button>
+            <button
+              className="account-discard"
+              disabled={busy}
+              onClick={() => void remove(deleting)}
+            >
+              {busy ? 'Deleting...' : 'Delete saved thread'}
+            </button>
+          </div>
+        </section>
       )}
       {error && <p role="alert">{error}</p>}
       {library.data?.pages
@@ -58,7 +107,10 @@ export function CloudLibrary({
             <button
               className="delete-saved"
               aria-label={'Delete account thread ' + thread.record.title}
-              onClick={() => void remove(thread.id)}
+              onClick={(e) => {
+                trigger.current = e.currentTarget
+                setDeleting(thread.id)
+              }}
             >
               ×
             </button>

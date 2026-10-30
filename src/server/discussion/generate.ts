@@ -6,6 +6,12 @@ import type {
 import type { Platform } from '../platform'
 import { getSnapshot } from '../data/threads'
 import { buildContext } from './context'
+import {
+  getRelevantMemories,
+  prepareMemoryUpdates,
+  memoryPublicationCheck,
+} from './memory'
+import { getSettings } from '../data/settings'
 import { getCast } from './cast'
 import { validateExchange } from './contracts'
 import { splitSource } from './source'
@@ -66,8 +72,30 @@ export async function runTurn(
       signal.aborted
     )
       return finishStale()
-    const context = buildContext(snapshot, input, [], getCast(input.threadId))
-    context.memoryEpoch = row.memory_epoch
+    const settings = await getSettings(p, u)
+    if (settings.memoryEpoch !== row.memory_epoch) return finishStale()
+    const cast = getCast(input.threadId)
+    const trigger = snapshot.comments.find(
+      (c) => c.id === input.triggerCommentId,
+    )
+    const query =
+      snapshot.thread.posts
+        .filter((p) => !trigger || p.id === trigger.postId)
+        .map((p) => p.text)
+        .join(' ') +
+      ' ' +
+      (trigger?.text ?? '')
+    const memories = settings.memoryEnabled
+      ? await getRelevantMemories(p, u, {
+          personaIds: cast.filter((p) => p.kind === 'regular').map((p) => p.id),
+          text: query,
+          limit: 4,
+        })
+      : []
+    const context = buildContext(snapshot, input, memories, cast, {
+      memoryEpoch: row.memory_epoch,
+      memoryEnabled: settings.memoryEnabled,
+    })
     const { exchange: raw, usage } = await callDeepSeek(p, context, signal)
     const exchange = validateExchange(raw, context)
     if (signal.aborted || !currentPlatform().env.aiEnabled) return finishStale()
@@ -77,12 +105,13 @@ export async function runTurn(
     // The private marker gates all dependent writes even if the lease expires
     // between statements; it is removed before the transaction commits.
     const fence = `EXISTS (SELECT 1 FROM ai_turns WHERE id = ? AND owner_id = ? AND status = 'complete' AND error_code = ?)`
+    const memoryCheck = memoryPublicationCheck(u, context.providedMemories)
     const statements: D1PreparedStatement[] = [
       p.db
         .prepare(
-          `UPDATE ai_turns SET status = 'complete', error_code = ? WHERE id = ? AND owner_id = ? AND ${finalizationFence}`,
+          `UPDATE ai_turns SET status = 'complete', error_code = ? WHERE id = ? AND owner_id = ? AND ${finalizationFence} AND ${memoryCheck.sql}`,
         )
-        .bind(marker, turn.id, u.userId),
+        .bind(marker, turn.id, u.userId, ...memoryCheck.bindings),
     ]
     const guest = getCast(input.threadId).find(
       (persona) =>
@@ -138,7 +167,7 @@ export async function runTurn(
       statements.push(
         p.db
           .prepare(
-            `INSERT INTO comments (id, thread_id, post_id, owner_id, parent_id, author_kind, author_id, text, sequence, created_at, turn_id, passage_ids) SELECT ?, ?, ?, ?, ?, 'ai', ?, ?, (SELECT COALESCE(MAX(sequence),0)+1 FROM comments WHERE thread_id = ? AND owner_id = ?), ?, ?, ? WHERE ${fence}`,
+            `INSERT INTO comments (id, thread_id, post_id, owner_id, parent_id, author_kind, author_id, text, sequence, created_at, turn_id, passage_ids, used_memory_ids) SELECT ?, ?, ?, ?, ?, 'ai', ?, ?, (SELECT COALESCE(MAX(sequence),0)+1 FROM comments WHERE thread_id = ? AND owner_id = ?), ?, ?, ?, ? WHERE ${fence}`,
           )
           .bind(
             ids.get(comment.id),
@@ -155,11 +184,19 @@ export async function runTurn(
             now,
             turn.id,
             JSON.stringify(comment.passageIds),
+            JSON.stringify(
+              context.providedMemories
+                .filter((m) => m.personaId === comment.speakerId)
+                .map((m) => m.id),
+            ),
             turn.id,
             u.userId,
             marker,
           ),
       )
+    statements.push(
+      ...prepareMemoryUpdates(p, u, turn.id, context, exchange, marker),
+    )
     statements.push(
       p.db
         .prepare(
