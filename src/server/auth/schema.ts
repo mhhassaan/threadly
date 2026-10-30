@@ -10,6 +10,7 @@ export const user = sqliteTable('user', {
     .notNull()
     .default(false),
   image: text('image'),
+  aiProcessingNoticeVersion: text('ai_processing_notice_version'),
   createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
   updatedAt: integer('updated_at', { mode: 'timestamp_ms' }).notNull(),
 })

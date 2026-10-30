@@ -144,6 +144,18 @@ export function createDiscussionController(options: ControllerOptions) {
       }
     },
     generate,
+    async restart() {
+      if (!active || state.pending) return
+      const started = lifecycle
+      await request('/api/comments', 'PATCH', { threadId: options.threadId })
+      if (!active || lifecycle !== started) return
+      await generate({
+        requestId: crypto.randomUUID(),
+        threadId: options.threadId,
+        kind: 'opening',
+        triggerCommentId: null,
+      })
+    },
     retry(requestId: string) {
       if (state.input?.requestId === requestId) return generate(state.input)
     },

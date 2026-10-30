@@ -8,6 +8,7 @@ import {
 import type { Platform } from '../platform'
 import { requireVerified, notFound } from '../data/threads'
 import { uuid } from '../data/validation'
+import { initializeAccountSettings } from '../data/settings'
 import { budget } from './budget'
 
 type TurnRow = {
@@ -365,6 +366,7 @@ export async function reserveTurn(
       'DISCUSSION_DELETED',
       'This discussion was deleted. Choose Start discussion to begin again.',
     )
+  await initializeAccountSettings(p, u)
   const { worst, ceiling } = budget(p)
   await assertAdmissionIdentity(p, u, input)
   const alias = await p.db

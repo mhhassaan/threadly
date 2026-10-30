@@ -1,3 +1,4 @@
+import { initializeAccountSettings } from './settings'
 import type { Platform } from '../platform'
 import { ApiError, type UserContext } from '../../lib/account-thread'
 import { requireVerified, getSnapshot, notFound } from './threads'
@@ -24,13 +25,8 @@ export async function clearMemory(
 ): Promise<void> {
   requireVerified(u)
   if (personaId !== undefined) validatePersona(personaId)
-  const statements = [
-    p.db
-      .prepare(
-        'INSERT INTO account_settings(owner_id) VALUES (?) ON CONFLICT DO NOTHING',
-      )
-      .bind(u.userId),
-  ]
+  await initializeAccountSettings(p, u)
+  const statements: D1PreparedStatement[] = []
   if (personaId) {
     statements.push(
       p.db

@@ -1,12 +1,32 @@
 import type { AccountSettings, UserContext } from '../../lib/account-thread'
 import type { Platform } from '../platform'
+import { processingNoticeVersion } from '../../lib/ai-processing'
 import { requireVerified } from './threads'
 
+// Signup's server creation timestamp is the acknowledgement receipt. Never
+// replace existing preferences (including deliberate pauses and privacy epochs).
+export async function initializeAccountSettings(
+  p: Platform,
+  u: UserContext,
+): Promise<void> {
+  requireVerified(u)
+  await p.db
+    .prepare(
+      `INSERT INTO account_settings (owner_id, ai_enabled, consent_at)
+    SELECT id, CASE WHEN ai_processing_notice_version = ? THEN 1 ELSE 0 END,
+      CASE WHEN ai_processing_notice_version = ? THEN strftime('%Y-%m-%dT%H:%M:%fZ', created_at / 1000.0, 'unixepoch') ELSE NULL END
+    FROM "user" WHERE id = ? AND email_verified = 1
+    ON CONFLICT(owner_id) DO NOTHING`,
+    )
+    .bind(processingNoticeVersion, processingNoticeVersion, u.userId)
+    .run()
+}
 export async function getSettings(
   p: Platform,
   u: UserContext,
 ): Promise<AccountSettings> {
   requireVerified(u)
+  await initializeAccountSettings(p, u)
   const row = await p.db
     .prepare('SELECT * FROM account_settings WHERE owner_id = ?')
     .bind(u.userId)
@@ -33,13 +53,9 @@ export async function updateSettings(
   },
 ): Promise<AccountSettings> {
   requireVerified(u)
+  await initializeAccountSettings(p, u)
   const now = new Date().toISOString()
   await p.db.batch([
-    p.db
-      .prepare(
-        'INSERT INTO account_settings (owner_id) VALUES (?) ON CONFLICT(owner_id) DO NOTHING',
-      )
-      .bind(u.userId),
     p.db
       .prepare(
         `UPDATE account_settings SET ai_enabled = COALESCE(?, ai_enabled), memory_enabled = COALESCE(?, memory_enabled), consent_at = CASE WHEN ? THEN COALESCE(consent_at, ?) ELSE consent_at END, settings_epoch = settings_epoch + 1 WHERE owner_id = ? AND (ai_enabled IS NOT COALESCE(?, ai_enabled) OR memory_enabled IS NOT COALESCE(?, memory_enabled) OR (? = 1 AND consent_at IS NULL))`,

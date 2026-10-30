@@ -83,3 +83,39 @@ test('conversation_delete_remains_live_after_strict_effect_replay', async () => 
   expect(fetch.mock.calls[0][1].signal.aborted).toBe(false)
   await vi.waitFor(() => expect(done).toHaveBeenCalledOnce())
 })
+
+test('conversation_confirmation_focuses_safe_cancel_and_restores_trigger', () => {
+  runtime.cells = []
+  runtime.cursor = 0
+  runtime.effects = []
+  runtime.client = new QueryClient()
+  vi.stubGlobal('requestAnimationFrame', (fn: any) => {
+    fn()
+    return 0
+  })
+  function render() {
+    runtime.cursor = 0
+    return DeleteConversation({
+      owner: 'alice',
+      threadId: 'thread',
+      postId: 'post',
+      onDeleted: vi.fn(),
+    })
+  }
+  let tree = render()
+  const trigger = find(tree, (n) => n.type === 'button')
+  const focus = vi.fn()
+  trigger.props.ref.current = { focus, isConnected: true }
+  trigger.props.onClick()
+  tree = render()
+  const cancel = find(
+    tree,
+    (n) => n.type === 'button' && n.props.children === 'Cancel',
+  )
+  expect(cancel.props['data-autofocus']).toBe(true)
+  cancel.props.onClick()
+  expect(focus).toHaveBeenCalledOnce()
+  expect(
+    find(render(), (n) => n.type === 'button' && n.props.children === 'Cancel'),
+  ).toBeUndefined()
+})

@@ -1,3 +1,4 @@
+import { ThreadManagement } from './ThreadManagement'
 import { PrivacyPanel } from './PrivacyPanel'
 import { UsageStatus } from './UsageStatus'
 import { useState } from 'react'
@@ -75,6 +76,9 @@ export function AccountPanel({
                 <UsageStatus key={'usage-' + user.id} owner={user.id} />
               )}
               {user.verified && <PrivacyPanel key={user.id} owner={user.id} />}
+              {user.verified && (
+                <ThreadManagement key={'threads-' + user.id} owner={user.id} />
+              )}
               <button
                 className="secondary"
                 disabled={busy}

@@ -1,5 +1,5 @@
 import { betterAuth } from 'better-auth/minimal'
-import { createAuthMiddleware } from 'better-auth/api'
+import { APIError, createAuthMiddleware } from 'better-auth/api'
 import { drizzleAdapter } from 'better-auth/adapters/drizzle'
 import { ApiError } from '../../lib/account-thread'
 import type { Platform } from '../platform'
@@ -69,6 +69,13 @@ export function createAuth(platform: Platform) {
     hooks: {
       before: createAuthMiddleware(async (ctx) => {
         if (
+          ctx.path === '/update-user' &&
+          ctx.body?.aiProcessingNoticeVersion !== undefined
+        )
+          throw new APIError('BAD_REQUEST', {
+            message: 'Processing notice receipts are recorded only at signup.',
+          })
+        if (
           ctx.path !== '/sign-in/email' ||
           typeof ctx.body?.email !== 'string'
         )
@@ -121,6 +128,12 @@ export function createAuth(platform: Platform) {
     user: {
       deleteUser: { enabled: false },
       additionalFields: {
+        aiProcessingNoticeVersion: {
+          type: 'string',
+          required: false,
+          input: true,
+          returned: false,
+        },
         credentialGeneration: {
           type: 'number',
           defaultValue: 0,

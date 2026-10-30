@@ -371,3 +371,47 @@ test('new_creation_intent_moves_to_one_reader_and_cannot_restart_on_parent_reope
   moveOpeningIntent(parent, revisit, 'opening')
   expect(revisit.getItem('opening')).toBeNull()
 })
+
+test('explicit_account_restart_uses_controller_owner_and_stops_after_dispose', async () => {
+  let release!: () => void
+  const request = vi.fn<DiscussionRequest>((path) =>
+    path === '/api/comments'
+      ? new Promise<void>((resolve) => (release = resolve))
+      : Promise.resolve(complete),
+  )
+  const { controller } = setup(request)
+  const pending = controller.restart()
+  expect(request.mock.calls[0].slice(0, 3)).toEqual([
+    '/api/comments',
+    'PATCH',
+    { threadId: 'thread' },
+  ])
+  expect(request.mock.calls[0][4]).toBe('alice')
+  const signal = request.mock.calls[0][3]!
+  controller.dispose()
+  expect(signal.aborted).toBe(true)
+  release()
+  await pending
+  expect(request).toHaveBeenCalledOnce()
+})
+
+test('explicit_account_restart_admits_only_after_restart_write', async () => {
+  const { controller, request } = setup(
+    vi.fn<DiscussionRequest>(async () => complete),
+  )
+  expect(request).not.toHaveBeenCalled()
+  await controller.restart()
+  expect(request.mock.calls.map((call) => call.slice(0, 3))).toEqual([
+    ['/api/comments', 'PATCH', { threadId: 'thread' }],
+    [
+      '/api/ai/turns',
+      'POST',
+      expect.objectContaining({
+        threadId: 'thread',
+        kind: 'opening',
+        triggerCommentId: null,
+      }),
+    ],
+  ])
+  controller.dispose()
+})

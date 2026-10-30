@@ -1,3 +1,4 @@
+import { processingNoticeText } from '../../lib/ai-processing'
 import { useEffect, useRef, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import type { AccountSettings, MemoryItem } from '../../lib/account-thread'
@@ -135,6 +136,7 @@ export function PrivacyPanel({ owner }: { owner: string }) {
   return (
     <section className="privacy-panel" aria-label="Privacy and AI controls">
       <h3>Privacy and AI</h3>
+      <p>{processingNoticeText}</p>
       <p>
         Relevant source text, comments and selected memories are processed by
         DeepSeek. Synced content is stored on Cloudflare. Providers and backups

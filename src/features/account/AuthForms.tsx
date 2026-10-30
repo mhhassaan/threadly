@@ -1,5 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
+import {
+  processingNoticeText,
+  processingNoticeVersion,
+} from '../../lib/ai-processing'
 import { authClient } from './auth-client'
 import { validateAuthForm } from './auth-state'
 import type { AuthFields, FormMode } from './auth-state'
@@ -65,6 +69,7 @@ export function AuthForms({
       const result =
         mode === 'signup'
           ? await authClient.signUp.email({
+              aiProcessingNoticeVersion: processingNoticeVersion,
               name: fields.name!.trim(),
               email,
               password: fields.password!,
@@ -223,6 +228,9 @@ export function AuthForms({
             <p id="authError" className="account-error" role="alert">
               {error}
             </p>
+          )}
+          {mode === 'signup' && (
+            <p className="account-hint">{processingNoticeText}</p>
           )}
           <button className="copy-primary" type="submit">
             {busy

@@ -1,3 +1,5 @@
+import { inferAdditionalFields } from 'better-auth/client/plugins'
+import type { createAuth } from '../../server/auth/auth'
 import { createAuthClient } from 'better-auth/react'
 import {
   createContext,
@@ -18,6 +20,7 @@ export { clearAccountCache, draftKey } from './auth-state'
 // Verification callbacks must not navigate away from an unsaved editor at sign-in.
 export const authClient = createAuthClient({
   basePath: '/api/auth',
+  plugins: [inferAdditionalFields<ReturnType<typeof createAuth>>()],
   disableDefaultFetchPlugins: true,
 })
 type Account = {

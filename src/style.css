@@ -3568,7 +3568,8 @@ html[data-motion-input='keyboard'] .source-panes > [role='tabpanel'] {
   margin: 16px 0;
   font-weight: 500;
 }
-.account-field input {
+.account-field input,
+.account-field select {
   width: 100%;
   min-width: 0;
   min-height: 48px;
