@@ -1,0 +1,64 @@
+{
+  "provenance": "Actual public synthetic deepseek-flash outputs, 2026-10-30 attempt 2. Request identifiers and usage omitted. Diagnostic variants in tests are not model outputs.",
+  "sarcasm": {
+    "comments": [
+      {
+        "id": "r1",
+        "speakerId": "10000000-0000-4000-8000-000000000002",
+        "postId": "30000000-0000-4000-8000-000000000001",
+        "parentId": "40000000-0000-4000-8000-000000000001",
+        "batchParentId": null,
+        "text": "Worth flagging that the source here is thin. As passage p0-64 puts it, solar panels produce electricity in daylight and \"Storage has costs.\" So a battery storing sunshine isn't free magic - the article's own framing treats storage as an expense line, not a given.",
+        "passageIds": ["p0-64"]
+      },
+      {
+        "id": "r2",
+        "speakerId": "10000000-0000-4000-8000-000000000003",
+        "postId": "30000000-0000-4000-8000-000000000001",
+        "parentId": "40000000-0000-4000-8000-000000000001",
+        "batchParentId": null,
+        "text": "Ha, fair - but the boring part is where it gets interesting. Solar's daylight-only per p0-64, so storage is what lets the daytime harvest show up at night. The catch is that cost, which the passage names but doesn't quantify.",
+        "passageIds": ["p0-64"]
+      }
+    ],
+    "memoryUpdates": []
+  },
+  "factualCorrection": {
+    "comments": [
+      {
+        "id": "c1",
+        "speakerId": "10000000-0000-4000-8000-000000000002",
+        "postId": "30000000-0000-4000-8000-000000000001",
+        "parentId": "40000000-0000-4000-8000-000000000001",
+        "batchParentId": null,
+        "text": "Panels themselves don't produce at midnight — that's what storage is for, and the supplied passage (p0-64) notes storage has costs. \"Works equally well at midnight\" conflates generation and delivery, so the real question is how much storage capacity and cost are acceptable.",
+        "passageIds": ["p0-64"]
+      },
+      {
+        "id": "c2",
+        "speakerId": "10000000-0000-4000-8000-000000000001",
+        "postId": "30000000-0000-4000-8000-000000000001",
+        "parentId": "40000000-0000-4000-8000-000000000001",
+        "batchParentId": null,
+        "text": "Midnight output from a panel is a nice trick, but the source here is just two lines — daylight generation and \"storage has costs.\" Nothing says how much, so I'd treat the equal-at-midnight standard as out of scope rather than met or unmet.",
+        "passageIds": ["p0-64"]
+      },
+      {
+        "id": "c3",
+        "speakerId": "10000000-0000-4000-8000-000000000003",
+        "postId": "30000000-0000-4000-8000-000000000001",
+        "parentId": "c1",
+        "batchParentId": "c1",
+        "text": "Fair reading. If the bar is really \"same output at midnight,\" storage is doing the night shift, and p0-64 only tells us that shift isn't free — not what it costs.",
+        "passageIds": ["p0-64"]
+      }
+    ],
+    "memoryUpdates": [
+      {
+        "personaId": "10000000-0000-4000-8000-000000000002",
+        "text": "These panels must work equally well at midnight.",
+        "evidenceIds": ["40000000-0000-4000-8000-000000000001"]
+      }
+    ]
+  }
+}

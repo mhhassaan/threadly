@@ -5,7 +5,10 @@ import {
   buildContext,
   estimateInputTokens,
 } from '../../src/server/discussion/context'
-import { validateExchange } from '../../src/server/discussion/contracts'
+import {
+  validateExchange,
+  type Exchange,
+} from '../../src/server/discussion/contracts'
 import type { ThreadSnapshot, TurnInput } from '../../src/lib/account-thread'
 
 const threadId = '20000000-0000-4000-8000-000000000001'
@@ -386,4 +389,124 @@ test('bounded_memory_output_is_not_mistaken_for_1200_bytes', () => {
   ).toBeGreaterThan(1200)
   expect(validateExchange(raw, c).memoryUpdates).toHaveLength(2)
   expect(c.memoryEpoch).toBe(2)
+})
+
+import publicResponses from '../fixtures/ai-public-responses.json'
+import { publicFixtures } from '../fixtures/ai-evaluation'
+
+test('saved_public_responses_keep_each_independent_contract_failure_rejected', () => {
+  const fixtures = publicFixtures()
+  const c = fixtures.find((f) => f.rubric === 'factual correction')!.context
+  const actual: Exchange = publicResponses.factualCorrection
+  expect(() => validateExchange(actual, c)).toThrow()
+  const parentOnlyFixed = structuredClone(actual)
+  parentOnlyFixed.comments[2].parentId = null
+  expect(() => validateExchange(parentOnlyFixed, c)).toThrow()
+  const speakerOnlyFixed = structuredClone(actual)
+  speakerOnlyFixed.comments[2].speakerId = actual.comments[0].speakerId
+  expect(() => validateExchange(speakerOnlyFixed, c)).toThrow()
+  const diagnostic = structuredClone(parentOnlyFixed)
+  diagnostic.comments[2].speakerId = actual.comments[0].speakerId
+  expect(validateExchange(diagnostic, c)).toEqual(diagnostic)
+  expect(
+    validateExchange(publicResponses.sarcasm, fixtures[0].context),
+  ).toEqual(publicResponses.sarcasm)
+  expect(
+    validateExchange({ comments: [actual.comments[0]], memoryUpdates: [] }, c)
+      .comments,
+  ).toHaveLength(1)
+})
+
+test.each(['reply', 'opening'] as const)(
+  'transmitted_%s_contract_examples_use_current_ids_and_validate',
+  (kind) => {
+    const c = context(snapshot(), kind)
+    const data = JSON.parse(c.messages[1].content)
+    expect(data.contractExamples).toBeDefined()
+    const { valid, invalidChanges } = data.contractExamples
+    expect(validateExchange(valid, c)).toEqual(valid)
+    for (const { index, fields } of invalidChanges) {
+      const invalid = structuredClone(valid)
+      Object.assign(invalid.comments[index], fields)
+      expect(() => validateExchange(invalid, c)).toThrow()
+    }
+    expect(c.allowedSpeakerIds).toEqual(getCast(threadId).map((p) => p.id))
+    expect(c.inputTokenUpperBound).toBe(estimateInputTokens(c.messages))
+    expect(c.inputTokenUpperBound).toBeLessThanOrEqual(12000)
+    if (kind === 'reply') {
+      expect(valid.comments).toHaveLength(3)
+      expect(new Set(valid.comments.map((v: any) => v.speakerId)).size).toBe(2)
+      expect(valid.comments[0]).toMatchObject({
+        parentId: 'human',
+        batchParentId: null,
+      })
+      expect(valid.comments[1]).toMatchObject({
+        parentId: null,
+        batchParentId: valid.comments[0].id,
+      })
+      expect(valid.comments[2]).toMatchObject({
+        parentId: null,
+        batchParentId: null,
+      })
+      expect(invalidChanges).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            fields: { speakerId: c.allowedSpeakerIds[2] },
+          }),
+          expect.objectContaining({ fields: { parentId: 'human' } }),
+        ]),
+      )
+      for (const example of valid.comments) {
+        expect(example.passageIds).toEqual([c.allowedPassageIds[0]])
+        expect(example.text).not.toContain(c.allowedPassageIds[0])
+      }
+    }
+  },
+)
+
+test.each(['reply', 'opening'] as const)(
+  'examples_preserve_%s_single_speaker_missing_source_and_id_collisions',
+  (kind) => {
+    const s = snapshot(1)
+    delete s.thread.record.sourceText
+    s.comments.push({ ...s.comments[0], id: 'example1', sequence: 2 })
+    const cast = [getCast(threadId)[0]]
+    const c = buildContext(s, input(kind), [], cast)
+    const { valid, invalidChanges } = JSON.parse(
+      c.messages[1].content,
+    ).contractExamples
+    expect(validateExchange(valid, c)).toEqual(valid)
+    expect(new Set(valid.comments.map((v: any) => v.speakerId)).size).toBe(1)
+    for (const v of valid.comments) {
+      expect(v.passageIds).toEqual([])
+      expect(c.allowedParentIds).not.toContain(v.id)
+    }
+    for (const { index, fields } of invalidChanges) {
+      const invalid = structuredClone(valid)
+      Object.assign(invalid.comments[index], fields)
+      expect(() => validateExchange(invalid, c)).toThrow()
+    }
+    if (kind === 'opening') expect(valid.comments).toHaveLength(1)
+  },
+)
+
+test('examples_do_not_invent_a_speaker_when_memory_filter_leaves_no_eligible_cast', () => {
+  const guest = getCast(threadId).find((p) => p.kind === 'guest')!
+  const c = buildContext(
+    snapshot(),
+    input(),
+    [
+      {
+        id: 'memory',
+        personaId: getCast(threadId)[0].id,
+        text: 'Solar',
+        evidenceIds: ['past'],
+        epoch: 1,
+      },
+    ],
+    [guest],
+    { memoryEpoch: 1, memoryEnabled: true },
+  )
+  expect(c.allowedSpeakerIds).toEqual([])
+  expect(JSON.parse(c.messages[1].content).contractExamples).toBeNull()
 })

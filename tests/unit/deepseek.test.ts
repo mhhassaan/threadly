@@ -155,3 +155,29 @@ test.each(['body', 'content', 'reported_tokens'])(
     expect(fetcher).toHaveBeenCalledTimes(1)
   },
 )
+
+import { publicFixtures } from '../fixtures/ai-evaluation'
+import { validateExchange } from '../../src/server/discussion/contracts'
+import { estimateInputTokens } from '../../src/server/discussion/context'
+
+test('real_builder_contract_examples_and_metadata_reach_provider_unchanged_within_budget', async () => {
+  const built = publicFixtures()[1].context
+  let transmitted: any
+  vi.stubGlobal('fetch', async (_url: unknown, init: RequestInit) => {
+    transmitted = JSON.parse(init.body as string)
+    return good()
+  })
+  await callDeepSeek(p, built, new AbortController().signal)
+  expect(transmitted.messages).toEqual(built.messages)
+  const examples = JSON.parse(transmitted.messages[1].content).contractExamples
+  expect(examples).toBeDefined()
+  expect(validateExchange(examples.valid, built)).toEqual(examples.valid)
+  expect(examples.valid.comments[0].passageIds).toEqual(['p0-64'])
+  expect(built.inputTokenUpperBound).toBe(
+    estimateInputTokens(transmitted.messages),
+  )
+  expect(
+    new TextEncoder().encode(JSON.stringify(transmitted)).byteLength + 2048,
+  ).toBeLessThanOrEqual(12000)
+  expect(transmitted.max_tokens).toBe(1200)
+})
