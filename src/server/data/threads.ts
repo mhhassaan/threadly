@@ -166,6 +166,49 @@ async function updateThread(
         expectedRevision,
       ),
   ]
+  // Synchronization revisions still advance for metadata saves. Rebase only
+  // matching evidence, behind THIS mutation's CAS, so stale evidence stays stale.
+  const contentFields = [
+    'id',
+    'date',
+    'title',
+    'posts',
+    'sourceUrl',
+    'source',
+    'media',
+    'sourceText',
+  ] as const
+  const embeddedReplies = (value: ThreadRecord) =>
+    current.posts.map(
+      (post) => value.interactions[post.position]?.replies ?? [],
+    )
+  const metadataOnly =
+    contentFields.every(
+      (field) =>
+        JSON.stringify(preserved[field]) ===
+        JSON.stringify(current.record[field]),
+    ) &&
+    JSON.stringify(embeddedReplies(preserved)) ===
+      JSON.stringify(embeddedReplies(current.record))
+  if (metadataOnly)
+    statements.push(
+      p.db
+        .prepare(
+          `UPDATE memory_evidence SET thread_revision = thread_revision + 1
+         WHERE thread_revision = ? AND source_revision = ?
+         AND comment_id IN (SELECT id FROM comments WHERE thread_id = ? AND owner_id = ?)
+         AND EXISTS (SELECT 1 FROM owned_threads WHERE id = ? AND owner_id = ? AND mutation_id = ?)`,
+        )
+        .bind(
+          expectedRevision,
+          current.sourceRevision,
+          current.id,
+          u.userId,
+          current.id,
+          u.userId,
+          mutation,
+        ),
+    )
   for (const post of current.posts) {
     const text = preserved.posts[post.position]
     if (post.text === text) continue

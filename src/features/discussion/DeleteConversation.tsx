@@ -2,8 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { Dialog } from '../../components/Dialog'
 import { accountRequest, accountThreadKey } from '../account/library'
-import { draftKey } from '../account/auth-state'
-import { openingIntentKey } from './ConsentNotice'
+import { erasePrivateDrafts } from '../account/private-drafts'
 export function DeleteConversation({
   owner,
   threadId,
@@ -44,18 +43,8 @@ export function DeleteConversation({
         owner,
       )
       if (abort.current.signal.aborted) return
+      erasePrivateDrafts({ owner, threadId, postId })
       await client.cancelQueries({ queryKey: ['account', owner] })
-      try {
-        const prefix = draftKey(
-          owner,
-          'comment:' + threadId + ':' + postId + ':',
-        )
-        for (let i = sessionStorage.length - 1; i >= 0; i--) {
-          const key = sessionStorage.key(i)
-          if (key?.startsWith(prefix)) sessionStorage.removeItem(key)
-        }
-        sessionStorage.removeItem(openingIntentKey(owner, threadId))
-      } catch {}
       client.setQueryData(
         accountThreadKey(owner, threadId),
         (

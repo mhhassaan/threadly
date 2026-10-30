@@ -23,6 +23,7 @@ import { updateSettings } from '../../src/server/data/settings'
 import { runTurn } from '../../src/server/discussion/generate'
 import { getCast } from '../../src/server/discussion/cast'
 import { cancelTurn, getTurn } from '../../src/server/discussion/turns'
+import { getUsageStatus } from '../../src/server/discussion/usage'
 import type { Platform } from '../../src/server/platform'
 const user = {
   userId: 'alice',
@@ -497,6 +498,130 @@ test('edited_support_is_invalid_and_retrieval_is_bounded', async () => {
     posts: [{ id: post, text: 'Changed source argument' }],
   })
   expect(await retrieve()).toEqual([])
+})
+
+test.each(['read', 'reaction'])(
+  'metadata_%s_keeps_recall_management_and_used_inspection',
+  async (kind) => {
+    await remember()
+    const original = input.threadId
+    const snapshot = await getSnapshot(platform, user, original)
+    const [memory] = await retrieve()
+    await nextThread()
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => provider(await replyExchange())),
+    )
+    expect(
+      (await runTurn(platform, user, input, new AbortController().signal))
+        .status,
+    ).toBe('complete')
+    await patchOwnedThread(platform, user, original, {
+      expectedRevision: snapshot.thread.revision,
+      ...(kind === 'read'
+        ? { readPostId: snapshot.thread.posts[0].id }
+        : {
+            interactions: {
+              '0': { liked: true, bookmarked: true, replies: [] },
+            },
+          }),
+    })
+    expect((await retrieve()).map((m) => m.id)).toEqual([memory.id])
+    expect(
+      (await inspectMemories(platform, user, [])).map((m) => m.id),
+    ).toEqual([memory.id])
+    expect(
+      (await inspectMemories(platform, user, [memory.id]))[0].evidence[0].text,
+    ).toBe(quote)
+  },
+)
+
+test('metadata_save_does_not_resurrect_previously_invalid_evidence', async () => {
+  await remember()
+  let snapshot = await getSnapshot(platform, user, input.threadId)
+  await patchOwnedThread(platform, user, input.threadId, {
+    expectedRevision: snapshot.thread.revision,
+    posts: [{ id: post, text: 'Edited argument' }],
+  })
+  snapshot = await getSnapshot(platform, user, input.threadId)
+  await patchOwnedThread(platform, user, input.threadId, {
+    expectedRevision: snapshot.thread.revision,
+    readPostId: post,
+  })
+  expect(await retrieve()).toEqual([])
+  expect(await inspectMemories(platform, user, [])).toEqual([])
+})
+
+test('losing_metadata_CAS_cannot_rebase_concurrent_content_edit', async () => {
+  await remember()
+  const snapshot = await getSnapshot(platform, user, input.threadId)
+  let race = true
+  const db = {
+    prepare: env.DB.prepare.bind(env.DB),
+    async batch(statements: D1PreparedStatement[]) {
+      if (race && statements.length < 5) {
+        race = false
+        await patchOwnedThread(platform, user, input.threadId, {
+          expectedRevision: snapshot.thread.revision,
+          posts: [{ id: post, text: 'Concurrent content edit' }],
+        })
+      }
+      return env.DB.batch(statements)
+    },
+  } as D1Database
+  await expect(
+    patchOwnedThread({ ...platform, db }, user, input.threadId, {
+      expectedRevision: snapshot.thread.revision,
+      readPostId: post,
+    }),
+  ).rejects.toMatchObject({ status: 409 })
+  expect(await retrieve()).toEqual([])
+})
+
+test('cross_thread_metadata_during_provider_keeps_atomic_memory_publication_valid', async () => {
+  await remember()
+  const original = input.threadId
+  const snapshot = await getSnapshot(platform, user, original)
+  const [memory] = await retrieve()
+  await nextThread()
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async () => {
+      await patchOwnedThread(platform, user, original, {
+        expectedRevision: snapshot.thread.revision,
+        readPostId: snapshot.thread.posts[0].id,
+      })
+      return provider(await replyExchange())
+    }),
+  )
+  expect(
+    (await runTurn(platform, user, input, new AbortController().signal)).status,
+  ).toBe('complete')
+  expect(
+    (await getSnapshot(platform, user, input.threadId)).comments.at(-1)
+      ?.usedMemoryIds,
+  ).toEqual([memory.id])
+})
+
+test('readonly_usage_excludes_expired_leases_without_cleaning_them', async () => {
+  await remember()
+  await nextThread(quote)
+  await remember()
+  await nextThread(quote)
+  await remember()
+  await env.DB.prepare(
+    "UPDATE ai_turns SET status = 'running', lease_until = '2000-01-01T00:00:00.000Z'",
+  ).run()
+  expect((await getUsageStatus(platform, user)).availability).toBe('available')
+  expect(
+    (await env.DB.prepare(
+      "SELECT count(*) AS n FROM ai_turns WHERE status = 'running'",
+    ).first<{ n: number }>())!.n,
+  ).toBe(3)
+  await env.DB.prepare(
+    "UPDATE ai_turns SET lease_until = '2099-01-01T00:00:00.000Z'",
+  ).run()
+  expect((await getUsageStatus(platform, user)).availability).toBe('busy')
 })
 test('invalidated_cross_thread_memory_before_publication_blocks_reply', async () => {
   await remember()

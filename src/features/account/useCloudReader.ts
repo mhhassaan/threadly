@@ -1,13 +1,21 @@
 import { useEffect, useRef, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
-import type {
-  AppendCommentInput,
-  Comment,
-  ThreadSnapshot,
+import {
+  ApiError,
+  type AppendCommentInput,
+  type Comment,
+  type ThreadSnapshot,
 } from '../../lib/account-thread'
 import type { ThreadRecord } from '../../lib/thread'
 import { toLegacyRecord } from '../../lib/legacy-import'
 import { draftKey } from './auth-state'
+import {
+  erasePrivateDrafts,
+  privateDeletionEvent,
+  scrubConversation,
+  type CloudDraft,
+  type PrivateDeletion,
+} from './private-drafts'
 import {
   accountLibraryKey,
   accountRequest,
@@ -16,7 +24,7 @@ import {
   useCloudThread,
 } from './library'
 
-type Draft = { record: ThreadRecord; base: ThreadSnapshot; readPostId?: string }
+type Draft = CloudDraft
 export function useCloudReader(owner: string, id?: string) {
   const client = useQueryClient()
   const query = useCloudThread(owner, id)
@@ -35,15 +43,45 @@ export function useCloudReader(owner: string, id?: string) {
   })
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
+  const [deleted, setDeleted] = useState(false)
+  const terminalNotFound =
+    query.error instanceof ApiError && query.error.status === 404
   const active = useRef(true),
     sending = useRef(false),
+    generation = useRef(0),
     currentDraft = useRef(draft)
   useEffect(() => {
     active.current = true
     return () => {
       active.current = false
+      generation.current++
     }
-  }, [])
+  }, [owner, id])
+  useEffect(() => {
+    function onDeletion(event: Event) {
+      const detail = (event as CustomEvent<PrivateDeletion>).detail
+      if (detail.owner !== owner || detail.threadId !== id) return
+      generation.current++
+      sending.current = false
+      setBusy(false)
+      setError('')
+      if (detail.postId) {
+        if (currentDraft.current)
+          retain(scrubConversation(currentDraft.current, detail.postId))
+      } else {
+        retain(null)
+        setDeleted(true)
+      }
+    }
+    window.addEventListener(privateDeletionEvent, onDeletion)
+    return () => window.removeEventListener(privateDeletionEvent, onDeletion)
+  }, [owner, id])
+  useEffect(() => {
+    if (terminalNotFound && owner && id) {
+      erasePrivateDrafts({ owner, threadId: id })
+      client.removeQueries({ queryKey: accountThreadKey(owner, id) })
+    }
+  }, [terminalNotFound, owner, id, client])
   function retain(next: Draft | null) {
     currentDraft.current = next
     setDraft(next)
@@ -57,8 +95,11 @@ export function useCloudReader(owner: string, id?: string) {
     }
   }
   const record =
-    draft?.record ?? (query.data ? toLegacyRecord(query.data) : null)
+    deleted || terminalNotFound
+      ? null
+      : (draft?.record ?? (query.data ? toLegacyRecord(query.data) : null))
   function edit(next: ThreadRecord, readPostId?: string) {
+    if (deleted || terminalNotFound) return
     const base = currentDraft.current?.base ?? query.data
     if (!base) return
     retain({
@@ -69,7 +110,8 @@ export function useCloudReader(owner: string, id?: string) {
   }
   async function save() {
     const value = currentDraft.current
-    if (!value || sending.current) return
+    if (!value || sending.current || deleted || terminalNotFound) return
+    const version = generation.current
     sending.current = true
     setBusy(true)
     setError('')
@@ -79,10 +121,15 @@ export function useCloudReader(owner: string, id?: string) {
       value.base,
       value.readPostId,
     )
-    if (!active.current) return
+    if (!active.current || generation.current !== version) return
     sending.current = false
     setBusy(false)
     if (result.error) {
+      if (result.error.status === 404) {
+        erasePrivateDrafts({ owner, threadId: id! })
+        client.removeQueries({ queryKey: accountThreadKey(owner, id!) })
+        return
+      }
       setError(
         result.error.status === 409
           ? 'This thread changed on another device. Your draft is kept. Copy your edits, then discard the draft to load the latest version.'
@@ -99,7 +146,9 @@ export function useCloudReader(owner: string, id?: string) {
   }
   async function reply(index: number, text: string): Promise<boolean> {
     const snapshot = query.data ?? draft?.base
-    if (!snapshot || sending.current) return false
+    if (!snapshot || sending.current || deleted || terminalNotFound)
+      return false
+    const version = generation.current
     const replyKey = draftKey(owner, 'reply-request:' + id + ':' + index)
     let input: AppendCommentInput | undefined
     try {
@@ -128,7 +177,7 @@ export function useCloudReader(owner: string, id?: string) {
         undefined,
         owner,
       )
-      if (!active.current) return false
+      if (!active.current || generation.current !== version) return false
       try {
         sessionStorage.removeItem(replyKey)
       } catch {}
@@ -166,24 +215,31 @@ export function useCloudReader(owner: string, id?: string) {
       void client.invalidateQueries({ queryKey: accountLibraryKey(owner) })
       return true
     } catch (reason) {
-      if (active.current)
+      if (active.current && generation.current === version) {
+        if (reason instanceof ApiError && reason.status === 404) {
+          erasePrivateDrafts({ owner, threadId: id! })
+          client.removeQueries({ queryKey: accountThreadKey(owner, id!) })
+          return false
+        }
         setError(
           reason instanceof Error
             ? reason.message
             : 'Reply could not be saved. Retry when connected.',
         )
+      }
       return false
     } finally {
-      if (active.current) {
+      if (active.current && generation.current === version) {
         sending.current = false
         setBusy(false)
       }
     }
   }
   return {
+    notFound: deleted || terminalNotFound,
     record,
     query,
-    draft,
+    draft: deleted || terminalNotFound ? null : draft,
     busy,
     error,
     edit,

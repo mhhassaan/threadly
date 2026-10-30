@@ -151,6 +151,7 @@ test('two authenticated devices retain private source, edits, bounded discussion
       headers: { cookie, origin, 'content-type': 'application/json' },
       ...(body === undefined ? {} : { body: JSON.stringify(body) }),
     })
+    path = new URL(request.url).pathname
     if (path === '/api/usage') return api.handleUsage(request, platform)
     if (path === '/api/settings') return api.handleSettings(request, platform)
     if (path.startsWith('/api/memory'))

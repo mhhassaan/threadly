@@ -1,4 +1,4 @@
-import { draftKey } from './auth-state'
+import { erasePrivateDrafts } from './private-drafts'
 import { useQueryClient } from '@tanstack/react-query'
 import { useEffect, useRef, useState } from 'react'
 import type { ThreadRecord } from '../../lib/thread'
@@ -33,16 +33,9 @@ export function CloudLibrary({
     setError('')
     try {
       await accountRequest('/api/threads/' + id, 'DELETE', {}, undefined, owner)
+      erasePrivateDrafts({ owner, threadId: id })
       await client.cancelQueries({ queryKey: accountThreadKey(owner, id) })
       client.removeQueries({ queryKey: accountThreadKey(owner, id) })
-      try {
-        const prefix = draftKey(owner, 'comment:' + id + ':')
-        for (let i = sessionStorage.length - 1; i >= 0; i--) {
-          const key = sessionStorage.key(i)
-          if (key?.startsWith(prefix)) sessionStorage.removeItem(key)
-        }
-        sessionStorage.removeItem(draftKey(owner, 'new-opening:' + id))
-      } catch {}
       void client.invalidateQueries({ queryKey: accountLibraryKey(owner) })
       setDeleting(null)
       requestAnimationFrame(() => heading.current?.focus())

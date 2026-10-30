@@ -14,7 +14,7 @@ export async function getUsageStatus(
       `SELECT date('now') AS day,
     (SELECT count(*) FROM ai_allowances WHERE owner_id=? AND utc_day=date('now') AND kind='opening') AS openings,
     (SELECT count(*) FROM ai_allowances WHERE owner_id=? AND utc_day=date('now') AND kind='reply') AS replies,
-    (SELECT count(*) FROM ai_turns WHERE owner_id=? AND status IN ('reserved','running')) AS active,
+    (SELECT count(*) FROM ai_turns WHERE owner_id=? AND status IN ('reserved','running') AND lease_until > strftime('%Y-%m-%dT%H:%M:%fZ', 'now')) AS active,
     (SELECT COALESCE(sum(reserved_micros),0) FROM ai_usage WHERE utc_day=date('now')) AS spend`,
     )
     .bind(u.userId, u.userId, u.userId)
