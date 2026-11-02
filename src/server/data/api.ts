@@ -1,3 +1,4 @@
+import { setPostReaction } from './post-reactions'
 import {
   clearMemory,
   deleteMemoryItem,
@@ -19,6 +20,7 @@ import type { TurnInput } from '../../lib/account-thread'
 import { ApiError } from '../../lib/account-thread'
 import { requireUser } from '../auth/session'
 import type { Platform } from '../platform'
+import { setCommentReaction } from './comment-reactions'
 import { appendHumanComment } from './comments'
 import { importLocalThread } from './import'
 import {
@@ -27,6 +29,7 @@ import {
   listThreads,
   patchOwnedThread,
   saveThread,
+  saveReadProgress,
 } from './threads'
 import {
   humanComment,
@@ -343,5 +346,56 @@ export function handleAccount(
       new Request(request, { body: JSON.stringify(input) }),
     )
     return new Response(null, { status: 204, headers: privateHeaders })
+  })
+}
+
+export function handleCommentReactions(
+  request: Request,
+  platform: Platform,
+  commentId: string,
+): Promise<Response> {
+  return respond(async () => {
+    const user = await requireUser(request, platform)
+    if (request.method !== 'PATCH') unsupported()
+    const patch = object(await body(request, platform), [
+      'liked',
+      'reposted',
+      'bookmarked',
+    ])
+    return json(await setCommentReaction(platform, user, commentId, patch))
+  })
+}
+export function handleReadingProgress(
+  request: Request,
+  platform: Platform,
+  threadId: string,
+): Promise<Response> {
+  return respond(async () => {
+    const user = await requireUser(request, platform)
+    if (request.method !== 'POST') unsupported()
+    const input = object(await body(request, platform), ['postId'])
+    return json(
+      await saveReadProgress(platform, user, threadId, input.postId as string),
+    )
+  })
+}
+
+export function handlePostReactions(
+  request: Request,
+  platform: Platform,
+  threadId: string,
+): Promise<Response> {
+  return respond(async () => {
+    const user = await requireUser(request, platform)
+    if (request.method !== 'PATCH') unsupported()
+    const { postId, ...patch } = object(await body(request, platform), [
+      'postId',
+      'liked',
+      'reposted',
+      'bookmarked',
+    ])
+    return json(
+      await setPostReaction(platform, user, threadId, postId as string, patch),
+    )
   })
 }

@@ -2,6 +2,8 @@ import { useInfiniteQuery, useQuery } from '@tanstack/react-query'
 import {
   ApiError,
   type LibraryPage,
+  type CommentReaction,
+  type ReadingProgress,
   type OwnedThread,
   type PatchThreadInput,
   type ThreadSnapshot,
@@ -166,13 +168,22 @@ export async function saveCloudDraft(
           },
         ]),
       )
+      // A source-only draft carries its starting flags. Sending those as a
+      // legacy flag edit would conflict with newer metadata from another view.
+      const hasReactionEdits = current.thread.posts.some((post) =>
+        (['liked', 'reposted', 'bookmarked'] as const).some(
+          (flag) =>
+            !!draft.interactions[post.position]?.[flag] !==
+            !!current.thread.record.interactions[post.position]?.[flag],
+        ),
+      )
       const input: PatchThreadInput = {
         expectedRevision: current.thread.revision,
         posts: current.thread.posts.map((post) => ({
           id: post.id,
           text: draft.posts[post.position],
         })),
-        interactions,
+        ...(hasReactionEdits ? { interactions } : {}),
         ...(readPostId ? { readPostId } : {}),
       }
       snapshot = await accountRequest<ThreadSnapshot>(
@@ -198,4 +209,48 @@ export async function saveCloudDraft(
             ),
     }
   }
+}
+
+export function saveCommentReaction(
+  owner: string,
+  id: string,
+  patch: Partial<CommentReaction>,
+  signal?: AbortSignal,
+) {
+  return accountRequest<CommentReaction>(
+    '/api/comments/' + encodeURIComponent(id) + '/reactions',
+    'PATCH',
+    patch,
+    signal,
+    owner,
+  )
+}
+export function savePostReaction(
+  owner: string,
+  threadId: string,
+  postId: string,
+  patch: Partial<CommentReaction>,
+  signal?: AbortSignal,
+) {
+  return accountRequest<CommentReaction>(
+    '/api/threads/' + encodeURIComponent(threadId) + '/reactions',
+    'PATCH',
+    { postId, ...patch },
+    signal,
+    owner,
+  )
+}
+export function saveReadingProgress(
+  owner: string,
+  threadId: string,
+  postId: string,
+  signal?: AbortSignal,
+) {
+  return accountRequest<ReadingProgress>(
+    '/api/threads/' + encodeURIComponent(threadId) + '/progress',
+    'POST',
+    { postId },
+    signal,
+    owner,
+  )
 }

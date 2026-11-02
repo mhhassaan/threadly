@@ -23,6 +23,9 @@ import { Route as ApiAiTurnsRouteImport } from './routes/api.ai.turns'
 import { Route as ApiAuthSplatRouteImport } from './routes/api.auth.$'
 import { Route as ApiThreadsThreadIdRouteImport } from './routes/api.threads.$threadId'
 import { Route as ApiAiTurnsTurnIdRouteImport } from './routes/api.ai.turns.$turnId'
+import { Route as ApiCommentsCommentIdReactionsRouteImport } from './routes/api.comments.$commentId.reactions'
+import { Route as ApiThreadsThreadIdProgressRouteImport } from './routes/api.threads.$threadId.progress'
+import { Route as ApiThreadsThreadIdReactionsRouteImport } from './routes/api.threads.$threadId.reactions'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -94,13 +97,31 @@ const ApiAiTurnsTurnIdRoute = ApiAiTurnsTurnIdRouteImport.update({
   path: '/$turnId',
   getParentRoute: () => ApiAiTurnsRoute,
 } as any)
+const ApiCommentsCommentIdReactionsRoute =
+  ApiCommentsCommentIdReactionsRouteImport.update({
+    id: '/$commentId/reactions',
+    path: '/$commentId/reactions',
+    getParentRoute: () => ApiCommentsRoute,
+  } as any)
+const ApiThreadsThreadIdProgressRoute =
+  ApiThreadsThreadIdProgressRouteImport.update({
+    id: '/progress',
+    path: '/progress',
+    getParentRoute: () => ApiThreadsThreadIdRoute,
+  } as any)
+const ApiThreadsThreadIdReactionsRoute =
+  ApiThreadsThreadIdReactionsRouteImport.update({
+    id: '/reactions',
+    path: '/reactions',
+    getParentRoute: () => ApiThreadsThreadIdRoute,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/account': typeof AccountRoute
   '/api/account': typeof ApiAccountRoute
   '/api/article': typeof ApiArticleRoute
-  '/api/comments': typeof ApiCommentsRoute
+  '/api/comments': typeof ApiCommentsRouteWithChildren
   '/api/library': typeof ApiLibraryRoute
   '/api/media': typeof ApiMediaRoute
   '/api/memory': typeof ApiMemoryRoute
@@ -108,15 +129,18 @@ export interface FileRoutesByFullPath {
   '/api/usage': typeof ApiUsageRoute
   '/api/ai/turns': typeof ApiAiTurnsRouteWithChildren
   '/api/auth/$': typeof ApiAuthSplatRoute
-  '/api/threads/$threadId': typeof ApiThreadsThreadIdRoute
+  '/api/threads/$threadId': typeof ApiThreadsThreadIdRouteWithChildren
   '/api/ai/turns/$turnId': typeof ApiAiTurnsTurnIdRoute
+  '/api/comments/$commentId/reactions': typeof ApiCommentsCommentIdReactionsRoute
+  '/api/threads/$threadId/progress': typeof ApiThreadsThreadIdProgressRoute
+  '/api/threads/$threadId/reactions': typeof ApiThreadsThreadIdReactionsRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/account': typeof AccountRoute
   '/api/account': typeof ApiAccountRoute
   '/api/article': typeof ApiArticleRoute
-  '/api/comments': typeof ApiCommentsRoute
+  '/api/comments': typeof ApiCommentsRouteWithChildren
   '/api/library': typeof ApiLibraryRoute
   '/api/media': typeof ApiMediaRoute
   '/api/memory': typeof ApiMemoryRoute
@@ -124,8 +148,11 @@ export interface FileRoutesByTo {
   '/api/usage': typeof ApiUsageRoute
   '/api/ai/turns': typeof ApiAiTurnsRouteWithChildren
   '/api/auth/$': typeof ApiAuthSplatRoute
-  '/api/threads/$threadId': typeof ApiThreadsThreadIdRoute
+  '/api/threads/$threadId': typeof ApiThreadsThreadIdRouteWithChildren
   '/api/ai/turns/$turnId': typeof ApiAiTurnsTurnIdRoute
+  '/api/comments/$commentId/reactions': typeof ApiCommentsCommentIdReactionsRoute
+  '/api/threads/$threadId/progress': typeof ApiThreadsThreadIdProgressRoute
+  '/api/threads/$threadId/reactions': typeof ApiThreadsThreadIdReactionsRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -133,7 +160,7 @@ export interface FileRoutesById {
   '/account': typeof AccountRoute
   '/api/account': typeof ApiAccountRoute
   '/api/article': typeof ApiArticleRoute
-  '/api/comments': typeof ApiCommentsRoute
+  '/api/comments': typeof ApiCommentsRouteWithChildren
   '/api/library': typeof ApiLibraryRoute
   '/api/media': typeof ApiMediaRoute
   '/api/memory': typeof ApiMemoryRoute
@@ -141,8 +168,11 @@ export interface FileRoutesById {
   '/api/usage': typeof ApiUsageRoute
   '/api/ai/turns': typeof ApiAiTurnsRouteWithChildren
   '/api/auth/$': typeof ApiAuthSplatRoute
-  '/api/threads/$threadId': typeof ApiThreadsThreadIdRoute
+  '/api/threads/$threadId': typeof ApiThreadsThreadIdRouteWithChildren
   '/api/ai/turns/$turnId': typeof ApiAiTurnsTurnIdRoute
+  '/api/comments/$commentId/reactions': typeof ApiCommentsCommentIdReactionsRoute
+  '/api/threads/$threadId/progress': typeof ApiThreadsThreadIdProgressRoute
+  '/api/threads/$threadId/reactions': typeof ApiThreadsThreadIdReactionsRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -161,6 +191,9 @@ export interface FileRouteTypes {
     | '/api/auth/$'
     | '/api/threads/$threadId'
     | '/api/ai/turns/$turnId'
+    | '/api/comments/$commentId/reactions'
+    | '/api/threads/$threadId/progress'
+    | '/api/threads/$threadId/reactions'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -177,6 +210,9 @@ export interface FileRouteTypes {
     | '/api/auth/$'
     | '/api/threads/$threadId'
     | '/api/ai/turns/$turnId'
+    | '/api/comments/$commentId/reactions'
+    | '/api/threads/$threadId/progress'
+    | '/api/threads/$threadId/reactions'
   id:
     | '__root__'
     | '/'
@@ -193,6 +229,9 @@ export interface FileRouteTypes {
     | '/api/auth/$'
     | '/api/threads/$threadId'
     | '/api/ai/turns/$turnId'
+    | '/api/comments/$commentId/reactions'
+    | '/api/threads/$threadId/progress'
+    | '/api/threads/$threadId/reactions'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -200,7 +239,7 @@ export interface RootRouteChildren {
   AccountRoute: typeof AccountRoute
   ApiAccountRoute: typeof ApiAccountRoute
   ApiArticleRoute: typeof ApiArticleRoute
-  ApiCommentsRoute: typeof ApiCommentsRoute
+  ApiCommentsRoute: typeof ApiCommentsRouteWithChildren
   ApiLibraryRoute: typeof ApiLibraryRoute
   ApiMediaRoute: typeof ApiMediaRoute
   ApiMemoryRoute: typeof ApiMemoryRoute
@@ -208,7 +247,7 @@ export interface RootRouteChildren {
   ApiUsageRoute: typeof ApiUsageRoute
   ApiAiTurnsRoute: typeof ApiAiTurnsRouteWithChildren
   ApiAuthSplatRoute: typeof ApiAuthSplatRoute
-  ApiThreadsThreadIdRoute: typeof ApiThreadsThreadIdRoute
+  ApiThreadsThreadIdRoute: typeof ApiThreadsThreadIdRouteWithChildren
 }
 
 declare module '@tanstack/react-router' {
@@ -311,8 +350,41 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiAiTurnsTurnIdRouteImport
       parentRoute: typeof ApiAiTurnsRoute
     }
+    '/api/comments/$commentId/reactions': {
+      id: '/api/comments/$commentId/reactions'
+      path: '/$commentId/reactions'
+      fullPath: '/api/comments/$commentId/reactions'
+      preLoaderRoute: typeof ApiCommentsCommentIdReactionsRouteImport
+      parentRoute: typeof ApiCommentsRoute
+    }
+    '/api/threads/$threadId/progress': {
+      id: '/api/threads/$threadId/progress'
+      path: '/progress'
+      fullPath: '/api/threads/$threadId/progress'
+      preLoaderRoute: typeof ApiThreadsThreadIdProgressRouteImport
+      parentRoute: typeof ApiThreadsThreadIdRoute
+    }
+    '/api/threads/$threadId/reactions': {
+      id: '/api/threads/$threadId/reactions'
+      path: '/reactions'
+      fullPath: '/api/threads/$threadId/reactions'
+      preLoaderRoute: typeof ApiThreadsThreadIdReactionsRouteImport
+      parentRoute: typeof ApiThreadsThreadIdRoute
+    }
   }
 }
+
+interface ApiCommentsRouteChildren {
+  ApiCommentsCommentIdReactionsRoute: typeof ApiCommentsCommentIdReactionsRoute
+}
+
+const ApiCommentsRouteChildren: ApiCommentsRouteChildren = {
+  ApiCommentsCommentIdReactionsRoute: ApiCommentsCommentIdReactionsRoute,
+}
+
+const ApiCommentsRouteWithChildren = ApiCommentsRoute._addFileChildren(
+  ApiCommentsRouteChildren,
+)
 
 interface ApiAiTurnsRouteChildren {
   ApiAiTurnsTurnIdRoute: typeof ApiAiTurnsTurnIdRoute
@@ -326,12 +398,25 @@ const ApiAiTurnsRouteWithChildren = ApiAiTurnsRoute._addFileChildren(
   ApiAiTurnsRouteChildren,
 )
 
+interface ApiThreadsThreadIdRouteChildren {
+  ApiThreadsThreadIdProgressRoute: typeof ApiThreadsThreadIdProgressRoute
+  ApiThreadsThreadIdReactionsRoute: typeof ApiThreadsThreadIdReactionsRoute
+}
+
+const ApiThreadsThreadIdRouteChildren: ApiThreadsThreadIdRouteChildren = {
+  ApiThreadsThreadIdProgressRoute: ApiThreadsThreadIdProgressRoute,
+  ApiThreadsThreadIdReactionsRoute: ApiThreadsThreadIdReactionsRoute,
+}
+
+const ApiThreadsThreadIdRouteWithChildren =
+  ApiThreadsThreadIdRoute._addFileChildren(ApiThreadsThreadIdRouteChildren)
+
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AccountRoute: AccountRoute,
   ApiAccountRoute: ApiAccountRoute,
   ApiArticleRoute: ApiArticleRoute,
-  ApiCommentsRoute: ApiCommentsRoute,
+  ApiCommentsRoute: ApiCommentsRouteWithChildren,
   ApiLibraryRoute: ApiLibraryRoute,
   ApiMediaRoute: ApiMediaRoute,
   ApiMemoryRoute: ApiMemoryRoute,
@@ -339,7 +424,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiUsageRoute: ApiUsageRoute,
   ApiAiTurnsRoute: ApiAiTurnsRouteWithChildren,
   ApiAuthSplatRoute: ApiAuthSplatRoute,
-  ApiThreadsThreadIdRoute: ApiThreadsThreadIdRoute,
+  ApiThreadsThreadIdRoute: ApiThreadsThreadIdRouteWithChildren,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

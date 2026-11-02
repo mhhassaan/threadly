@@ -53,7 +53,14 @@ export type AppendCommentInput = {
   parentId: string | null
   text: string
 }
+export type CommentReaction = {
+  liked: boolean
+  reposted: boolean
+  bookmarked: boolean
+}
+export type ReadingProgress = { postId: string; readAt: string }
 export type ThreadSnapshot = {
+  commentReactions?: Record<string, CommentReaction>
   openingBlocked?: boolean
   thread: OwnedThread
   comments: Comment[]

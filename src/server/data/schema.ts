@@ -81,6 +81,48 @@ export const comments = sqliteTable(
     index('comments_post').on(t.ownerId, t.threadId, t.postId, t.sequence),
   ],
 )
+export const commentReactions = sqliteTable(
+  'comment_reactions',
+  {
+    commentId: text('comment_id').primaryKey(),
+    threadId: text('thread_id').notNull(),
+    postId: text('post_id').notNull(),
+    ownerId: text('owner_id').notNull(),
+    liked: integer('liked').notNull().default(0),
+    reposted: integer('reposted').notNull().default(0),
+    bookmarked: integer('bookmarked').notNull().default(0),
+  },
+  (t) => [
+    foreignKey({
+      columns: [t.commentId, t.threadId, t.postId, t.ownerId],
+      foreignColumns: [
+        comments.id,
+        comments.threadId,
+        comments.postId,
+        comments.ownerId,
+      ],
+    }).onDelete('cascade'),
+    index('comment_reactions_owner_thread').on(t.ownerId, t.threadId),
+  ],
+)
+export const postReactions = sqliteTable(
+  'post_reactions',
+  {
+    postId: text('post_id').primaryKey(),
+    threadId: text('thread_id').notNull(),
+    ownerId: text('owner_id').notNull(),
+    liked: integer('liked').notNull().default(0),
+    reposted: integer('reposted').notNull().default(0),
+    bookmarked: integer('bookmarked').notNull().default(0),
+  },
+  (t) => [
+    foreignKey({
+      columns: [t.postId, t.threadId, t.ownerId],
+      foreignColumns: [ownedPosts.id, ownedPosts.threadId, ownedPosts.ownerId],
+    }).onDelete('cascade'),
+    index('post_reactions_owner_thread').on(t.ownerId, t.threadId),
+  ],
+)
 export const readingProgress = sqliteTable(
   'reading_progress',
   {

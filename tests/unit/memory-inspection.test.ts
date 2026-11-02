@@ -266,3 +266,100 @@ test('stale_confirmed_account_deletion_keeps_new_session_atom_and_private_cache'
     'Bob private',
   )
 })
+
+for (const kind of ['reaction', 'post', 'progress'] as const) {
+  const write = async (signal?: AbortSignal) => {
+    const library = await import('../../src/features/account/library')
+    return kind === 'reaction'
+      ? library.saveCommentReaction('alice', 'comment', { liked: true }, signal)
+      : kind === 'post'
+        ? library.savePostReaction(
+            'alice',
+            'thread',
+            'post',
+            { liked: true },
+            signal,
+          )
+        : library.saveReadingProgress('alice', 'thread', 'post', signal)
+  }
+
+  test(`${kind}_metadata_uses_exact_desired_state_and_never_retries_offline_write`, async () => {
+    const expected =
+      kind === 'reaction'
+        ? ['/api/comments/comment/reactions', 'PATCH', { liked: true }]
+        : kind === 'post'
+          ? [
+              '/api/threads/thread/reactions',
+              'PATCH',
+              { postId: 'post', liked: true },
+            ]
+          : ['/api/threads/thread/progress', 'POST', { postId: 'post' }]
+    const controller = new AbortController()
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (path, init) => {
+        expect([path, init.method, JSON.parse(init.body)]).toEqual(expected)
+        expect(init.signal).toBe(controller.signal)
+        expect(init.headers['Content-Type']).toBe('application/json')
+        throw new TypeError('offline')
+      }),
+    )
+    await expect(write(controller.signal)).rejects.toMatchObject({
+      code: 'OFFLINE',
+    })
+    expect(fetch).toHaveBeenCalledTimes(1)
+    expect(events).toEqual([])
+    expect(provider().props.value.user?.id).toBe('alice')
+  })
+  test(`${kind}_metadata_401_expires_current_owner_without_retry_and_preserves_draft`, async () => {
+    drafts.setItem(draftKey('alice', 'reply'), 'Unsent')
+    runtime.client.setQueryData(['account', 'alice', 'thread'], 'Private')
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        Response.json({ code: 'UNAUTHENTICATED' }, { status: 401 }),
+      ),
+    )
+    await expect(write()).rejects.toMatchObject({ status: 401 })
+    expect(fetch).toHaveBeenCalledTimes(1)
+    expect(events).toEqual(['alice'])
+    expect(provider().props.value.user).toBeNull()
+    expect(
+      runtime.client.getQueryData(['account', 'alice', 'thread']),
+    ).toBeUndefined()
+    expect(drafts.getItem(draftKey('alice', 'reply'))).toBe('Unsent')
+  })
+  test(`${kind}_metadata_stale_401_preserves_new_owner_and_forwards_abort_without_retry`, async () => {
+    let release!: (response: Response) => void
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((_path, init) => {
+        expect(init.signal).toBe(controller.signal)
+        expect(init.credentials).toBe('same-origin')
+        expect(init.cache).toBe('no-store')
+        return new Promise<Response>((resolve) => {
+          release = resolve
+        })
+      }),
+    )
+    const controller = new AbortController()
+    const pending = write(controller.signal)
+    // Helpers import asynchronously; let the request start before the owner switch.
+    await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(1))
+    controller.abort()
+    runtime.session = session('bob')
+    provider()
+    effects(providerHost)
+    drafts.setItem(draftKey('bob', 'reply'), 'Bob draft')
+    runtime.client.setQueryData(['account', 'bob', 'thread'], 'Bob private')
+    release(Response.json({ code: 'UNAUTHENTICATED' }, { status: 401 }))
+    await expect(pending).rejects.toMatchObject({ status: 401 })
+    expect(events).toEqual(['alice'])
+    expect(provider().props.value.user?.id).toBe('bob')
+    expect(runtime.client.getQueryData(['account', 'bob', 'thread'])).toBe(
+      'Bob private',
+    )
+    expect(drafts.getItem(draftKey('bob', 'reply'))).toBe('Bob draft')
+    expect(fetch).toHaveBeenCalledTimes(1)
+  })
+}

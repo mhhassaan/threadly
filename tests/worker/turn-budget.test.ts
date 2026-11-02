@@ -1,3 +1,4 @@
+import reactionMigration from '../../drizzle/migrations/0012_comment_reactions.sql?raw'
 import privacyMigration from '../../drizzle/migrations/0010_privacy.sql?raw'
 import memoryMigration from '../../drizzle/migrations/0009_memory.sql?raw'
 import { env } from 'cloudflare:workers'
@@ -55,6 +56,7 @@ beforeAll(async () => {
   await applyMigration(env.DB, openingAdmissions)
   await applyMigration(env.DB, memoryMigration)
   await applyMigration(env.DB, privacyMigration)
+  await applyMigration(env.DB, reactionMigration)
 })
 beforeEach(async () => {
   vi.useRealTimers()

@@ -1,3 +1,7 @@
+import { setCommentReaction } from '../../src/server/data/comment-reactions'
+import { setPostReaction } from '../../src/server/data/post-reactions'
+import { saveReadProgress } from '../../src/server/data/threads'
+import reactionMigration from '../../drizzle/migrations/0012_comment_reactions.sql?raw'
 import privacyMigration from '../../drizzle/migrations/0010_privacy.sql?raw'
 import { env } from 'cloudflare:workers'
 import { afterEach, beforeAll, beforeEach, expect, test, vi } from 'vitest'
@@ -65,6 +69,7 @@ beforeAll(async () => {
   await applyMigration(env.DB, openingAdmissions)
   await applyMigration(env.DB, memoryMigration)
   await applyMigration(env.DB, privacyMigration)
+  await applyMigration(env.DB, reactionMigration)
 })
 beforeEach(async () => {
   await env.DB.prepare('DELETE FROM ai_usage').run()
@@ -766,4 +771,108 @@ test('admitted_marker_batch_saves_memory_if_clock_lease_expires_between_statemen
     (await getSnapshot(platform, user, input.threadId)).comments,
   ).toHaveLength(2)
   expect(await retrieve()).toHaveLength(1)
+})
+
+test('post_and_comment_reactions_plus_progress_during_generation_publish_safely', async () => {
+  await remember()
+  const original = input.threadId
+  const [existing] = await retrieve()
+  const existingEvidence = await env.DB.prepare(
+    'SELECT * FROM memory_evidence WHERE memory_id = ?',
+  )
+    .bind(existing.id)
+    .all()
+  await nextThread(quote)
+  const before = await getSnapshot(platform, user, input.threadId)
+  const content = () =>
+    env.DB.batch(
+      ['owned_threads', 'owned_posts', 'source_passages'].map((table) =>
+        env.DB.prepare(`SELECT * FROM ${table}`),
+      ),
+    )
+  const contentBefore = (await content()).map((r) => r.results)
+  let release!: () => void, started!: () => void
+  const pending = new Promise<void>((resolve) => {
+    release = resolve
+  })
+  const ready = new Promise<void>((resolve) => {
+    started = resolve
+  })
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async () => {
+      started()
+      await pending
+      const exchange = await replyExchange()
+      exchange.memoryUpdates = [
+        {
+          personaId: regular,
+          text: quote,
+          evidenceIds: [input.triggerCommentId],
+        },
+      ]
+      return provider(exchange)
+    }),
+  )
+  const running = runTurn(platform, user, input, new AbortController().signal)
+  await ready
+  try {
+    await Promise.all([
+      setPostReaction(platform, user, input.threadId, post, { liked: true }),
+      setPostReaction(platform, user, input.threadId, post, {
+        bookmarked: true,
+      }),
+      setCommentReaction(platform, user, input.triggerCommentId, {
+        liked: true,
+      }),
+      setCommentReaction(platform, user, input.triggerCommentId, {
+        reposted: true,
+      }),
+      saveReadProgress(platform, user, input.threadId, post),
+      setPostReaction(
+        platform,
+        user,
+        original,
+        (await getSnapshot(platform, user, original)).thread.posts[0].id,
+        { reposted: true },
+      ),
+    ])
+    expect((await content()).map((r) => r.results)).toEqual(contentBefore)
+    expect(
+      (
+        await env.DB.prepare(
+          'SELECT * FROM memory_evidence WHERE memory_id = ?',
+        )
+          .bind(existing.id)
+          .all()
+      ).results,
+    ).toEqual(existingEvidence.results)
+  } finally {
+    release()
+  }
+  expect((await running).status).toBe('complete')
+  const after = await getSnapshot(platform, user, input.threadId)
+  expect(after.thread.revision).toBe(before.thread.revision)
+  expect(after.thread.sourceRevision).toBe(before.thread.sourceRevision)
+  expect(after.thread.posts).toEqual(before.thread.posts)
+  expect(after.comments).toHaveLength(before.comments.length + 1)
+  expect(after.comments.at(-1)!.usedMemoryIds).toContain(existing.id)
+  expect(after.thread.record.interactions['0']).toMatchObject({
+    liked: true,
+    bookmarked: true,
+  })
+  expect(after.commentReactions?.[input.triggerCommentId]).toEqual({
+    liked: true,
+    reposted: true,
+    bookmarked: false,
+  })
+  expect(after.readPostId).toBe(post)
+  const memories = await retrieve()
+  expect(memories).toHaveLength(2)
+  expect(
+    memories.some((m) => m.evidenceIds.includes(input.triggerCommentId)),
+  ).toBe(true)
+  expect(
+    (await inspectMemories(platform, user, [existing.id]))[0].evidence[0].text,
+  ).toBe(quote)
 })

@@ -1,3 +1,4 @@
+import { reactionDto, type ReactionRow } from './comment-reactions'
 import {
   ApiError,
   type UserContext,
@@ -6,6 +7,7 @@ import {
   type PatchThreadInput,
   type LibraryPage,
   type Comment,
+  type ReadingProgress,
 } from '../../lib/account-thread'
 import type { ThreadRecord } from '../../lib/thread'
 import type { Platform } from '../platform'
@@ -71,9 +73,22 @@ export function commentDto(row: CommentRow): Comment {
     usedMemoryIds: JSON.parse(row.used_memory_ids ?? '[]'),
   }
 }
-function threadDto(row: ThreadRow, posts: PostRow[]): OwnedThread {
+function threadDto(
+  row: ThreadRow,
+  posts: PostRow[],
+  reactions: (ReactionRow & { post_id: string })[] = [],
+): OwnedThread {
   const record = JSON.parse(row.record_json) as ThreadRecord
   record.posts = posts.map((p) => p.text)
+  for (const reaction of reactions) {
+    const post = posts.find((post) => post.id === reaction.post_id)
+    if (post)
+      record.interactions[post.position] = {
+        ...record.interactions[post.position],
+        replies: record.interactions[post.position]?.replies ?? [],
+        ...reactionDto(reaction),
+      }
+  }
   if (row.source_text !== null) record.sourceText = row.source_text
   return {
     id: row.id,
@@ -115,14 +130,33 @@ export async function getSnapshot(
         'SELECT 1 FROM legacy_imports WHERE thread_id = ? AND owner_id = ?',
       )
       .bind(threadId, u.userId),
+    p.db
+      .prepare(
+        'SELECT comment_id, liked, reposted, bookmarked FROM comment_reactions WHERE thread_id = ? AND owner_id = ?',
+      )
+      .bind(threadId, u.userId),
+    p.db
+      .prepare(
+        'SELECT post_id, liked, reposted, bookmarked FROM post_reactions WHERE thread_id = ? AND owner_id = ?',
+      )
+      .bind(threadId, u.userId),
   ])
   const row = results[0].results[0] as ThreadRow | undefined
   if (!row) notFound()
   const read = results[3].results[0] as
     { post_id: string; read_at: string } | undefined
   return {
-    thread: threadDto(row, results[1].results as PostRow[]),
+    thread: threadDto(
+      row,
+      results[1].results as PostRow[],
+      results[6].results as (ReactionRow & { post_id: string })[],
+    ),
     comments: (results[2].results as CommentRow[]).map(commentDto),
+    commentReactions: Object.fromEntries(
+      (results[5].results as (ReactionRow & { comment_id: string })[]).map(
+        (row) => [row.comment_id, reactionDto(row)],
+      ),
+    ),
     isImported: results[4].results.length > 0,
     openingBlocked: !!row.opening_blocked,
     readPostId: read?.post_id ?? null,
@@ -139,6 +173,7 @@ async function updateThread(
   record: ThreadRecord,
   expectedRevision: number,
   readPostId?: string,
+  includesLegacyReactions = true,
 ): Promise<OwnedThread> {
   revision(expectedRevision)
   if (current.revision !== expectedRevision) conflict()
@@ -152,10 +187,21 @@ async function updateThread(
   if (current.record.sourceText !== undefined)
     preserved.sourceText = current.record.sourceText
   else delete preserved.sourceText
+  // Legacy full-map flags cannot express a baseline for concurrent metadata.
+  // Once dedicated flags exist, reject disagreement atomically rather than
+  // silently overwriting or dropping either editor's intent.
   const statements = [
     p.db
       .prepare(
-        'UPDATE owned_threads SET record_json = ?, revision = revision + 1, mutation_id = ?, updated_at = ? WHERE id = ? AND owner_id = ? AND revision = ?',
+        `UPDATE owned_threads SET record_json = ?, revision = revision + 1, mutation_id = ?, updated_at = ? WHERE id = ? AND owner_id = ? AND revision = ?
+         AND (? = 0 OR NOT EXISTS (
+           SELECT 1 FROM post_reactions r JOIN owned_posts p ON p.id = r.post_id AND p.thread_id = r.thread_id AND p.owner_id = r.owner_id
+           LEFT JOIN json_each(?) j ON j.key = CAST(p.position AS TEXT)
+           WHERE r.thread_id = owned_threads.id AND r.owner_id = owned_threads.owner_id
+           AND (COALESCE(json_extract(j.value, '$.liked'), 0) <> r.liked
+             OR COALESCE(json_extract(j.value, '$.reposted'), 0) <> r.reposted
+             OR COALESCE(json_extract(j.value, '$.bookmarked'), 0) <> r.bookmarked)
+         ))`,
       )
       .bind(
         JSON.stringify(preserved),
@@ -164,6 +210,8 @@ async function updateThread(
         current.id,
         u.userId,
         expectedRevision,
+        includesLegacyReactions ? 1 : 0,
+        JSON.stringify(preserved.interactions),
       ),
   ]
   // Synchronization revisions still advance for metadata saves. Rebase only
@@ -324,6 +372,7 @@ export async function patchOwnedThread(
     threadRecord(record),
     input.expectedRevision,
     input.readPostId,
+    input.interactions !== undefined,
   )
   return getSnapshot(p, u, threadId)
 }
@@ -344,16 +393,34 @@ export async function listThreads(
   const threads: OwnedThread[] = []
   if (page.length) {
     const results = await p.db.batch(
-      page.map((row) =>
-        p.db
-          .prepare(
-            'SELECT id, text, position, revision FROM owned_posts WHERE thread_id = ? AND owner_id = ? ORDER BY position',
-          )
-          .bind(row.id, u.userId),
-      ),
+      page
+        .map((row) =>
+          p.db
+            .prepare(
+              'SELECT id, text, position, revision FROM owned_posts WHERE thread_id = ? AND owner_id = ? ORDER BY position',
+            )
+            .bind(row.id, u.userId),
+        )
+        .concat(
+          page.map((row) =>
+            p.db
+              .prepare(
+                'SELECT post_id, liked, reposted, bookmarked FROM post_reactions WHERE thread_id = ? AND owner_id = ?',
+              )
+              .bind(row.id, u.userId),
+          ),
+        ),
     )
     page.forEach((row, i) =>
-      threads.push(threadDto(row, results[i].results as PostRow[])),
+      threads.push(
+        threadDto(
+          row,
+          results[i].results as PostRow[],
+          results[i + page.length].results as (ReactionRow & {
+            post_id: string
+          })[],
+        ),
+      ),
     )
   }
   return {
@@ -366,20 +433,44 @@ export async function saveReadProgress(
   u: UserContext,
   threadId: string,
   postId: string,
-): Promise<void> {
-  const { thread } = await getSnapshot(p, u, threadId)
+): Promise<ReadingProgress> {
+  requireVerified(u)
+  uuid(threadId)
   uuid(postId)
-  if (!thread.posts.some((post) => post.id === postId))
-    invalid('Invalid reading post')
-  // SELECT keeps deletion races from creating orphan progress.
-  const result = await p.db
+  const owned = await p.db
+    .prepare('SELECT 1 FROM owned_threads WHERE id = ? AND owner_id = ?')
+    .bind(threadId, u.userId)
+    .first()
+  if (!owned) notFound()
+  const post = await p.db
     .prepare(
-      'INSERT INTO reading_progress (thread_id, owner_id, post_id, read_at) SELECT thread_id, owner_id, id, ? FROM owned_posts WHERE id = ? AND thread_id = ? AND owner_id = ? ON CONFLICT(thread_id) DO UPDATE SET post_id = excluded.post_id, read_at = excluded.read_at',
+      'SELECT 1 FROM owned_posts WHERE id = ? AND thread_id = ? AND owner_id = ?',
     )
-    .bind(new Date().toISOString(), postId, threadId, u.userId)
-    .run()
-  if (!result.meta.changes) notFound()
+    .bind(postId, threadId, u.userId)
+    .first()
+  if (!post) invalid('Invalid reading post')
+  const results = await p.db.batch([
+    p.db
+      .prepare(
+        `INSERT INTO reading_progress (thread_id, owner_id, post_id, read_at)
+      SELECT thread_id, owner_id, id, ? FROM owned_posts WHERE id = ? AND thread_id = ? AND owner_id = ?
+      ON CONFLICT(thread_id) DO UPDATE SET post_id = excluded.post_id, read_at = excluded.read_at
+      WHERE (SELECT position FROM owned_posts WHERE id = excluded.post_id AND thread_id = excluded.thread_id AND owner_id = excluded.owner_id)
+        > (SELECT position FROM owned_posts WHERE id = reading_progress.post_id AND thread_id = reading_progress.thread_id AND owner_id = reading_progress.owner_id)`,
+      )
+      .bind(new Date().toISOString(), postId, threadId, u.userId),
+    p.db
+      .prepare(
+        'SELECT post_id, read_at FROM reading_progress WHERE thread_id = ? AND owner_id = ? AND EXISTS (SELECT 1 FROM owned_posts WHERE id = ? AND thread_id = ? AND owner_id = ?)',
+      )
+      .bind(threadId, u.userId, postId, threadId, u.userId),
+  ])
+  const row = results[1].results[0] as
+    { post_id: string; read_at: string } | undefined
+  if (!row) notFound()
+  return { postId: row.post_id, readAt: row.read_at }
 }
+
 export async function deleteThread(
   p: Platform,
   u: UserContext,
