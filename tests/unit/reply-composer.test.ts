@@ -94,7 +94,7 @@ test('rejection and unmount cannot clear a replacement owner draft', async () =>
   expect(drafts.getItem(key)).toBe('Newly signed-in draft')
 })
 
-test('inline and modal consumers restore the shared private draft while retaining their labels', () => {
+test('inline and focused consumers restore the shared draft using the same composer', () => {
   const drafts = storage(),
     key = 'threadly-account:alice:draft:reply'
   drafts.setItem(key, 'Unsent private reply from storage')
@@ -127,7 +127,7 @@ test('inline and modal consumers restore the shared private draft while retainin
     expect(markup).toContain('Unsent private reply from storage</textarea>')
   expect(inline).toContain('Post your reply')
   expect(inline).toContain('>Reply</button>')
-  expect(modal).toContain('Add a reply')
-  expect(modal).toContain('>Add reply</button>')
+  expect(modal).toContain('Post your reply')
+  expect(modal).toContain('>Reply</button>')
   expect(drafts.getItem(key)).toBe('Unsent private reply from storage')
 })

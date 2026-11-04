@@ -3802,3 +3802,42 @@ html[data-motion-input='keyboard'] .source-panes > [role='tabpanel'] {
 .privacy-confirm { border: 1px solid var(--line); border-radius: 8px; padding: 1rem; margin-block: 1rem; }
 .privacy-confirm label { display: grid; gap: .4rem; }
 @media (pointer: coarse) { .privacy-confirm input { font-size: 16px; } }
+
+/* Shared article/comment chrome. Body text stays selectable; controls respond to touch. */
+.reader-page .post-editor { grid-column: 1 / -1; margin: 12px 0; }
+.post-editor textarea { width: 100%; min-height: 150px; font: 16px/1.5 var(--font-thread); color: var(--ink); background: var(--paper); border: 1px solid var(--line); border-radius: 8px; padding: 10px; }
+.post-editor button { margin: 8px 8px 0 0; min-height: 44px; }
+.reader-page .post .posttext { white-space: pre-wrap; overflow-wrap: anywhere; cursor: text; }
+.reader-page .post[tabindex]:focus-visible { outline: 2px solid var(--card-link); outline-offset: -2px; }
+.reader-page .focused-conversation { border-top: 1px solid var(--line); }
+.reader-page .focused-conversation > .post { border-bottom: 1px solid var(--line); padding-bottom: 4px; }
+.reader-page .focused-conversation > .post:before { display: none; }
+.reader-page .focused-conversation .author-identity { flex-wrap: nowrap; }
+.reader-page .focused-conversation .tweet-time { margin-left: 2px; font-size: 11px; }
+.reader-page .focused-conversation .handle { max-width: 100px; }
+.reader-page .post .post-actions button { min-width: 44px; min-height: 44px; height: 44px; }
+.reader-page .post-more > summary, .reader-options > summary { width: 44px; height: 44px; }
+.reader-page .post-more { margin-top: -10px; margin-right: -10px; }
+.reader-page .first-post .post-more { margin-top: -4px; }
+.reader-page .post .post-actions button[aria-pressed="true"] { color: var(--card-link); }
+.reader-page .post .post-actions button[aria-label="Unlike post"] { color: #e54b8a; }
+.reader-page .post-actions button[aria-pressed="true"] svg { stroke-width: 2.3; }
+.post-menu > a, .post-menu > details { font: 500 13px/1.4 var(--font-thread); padding: 10px; color: var(--card-ink); }
+.post-menu blockquote { max-height: 200px; overflow: auto; margin: 8px 0; white-space: pre-wrap; }
+.reply-feedback, .discussion-replying { padding: 10px 16px; color: var(--muted); font: 13px/1.4 var(--font-thread); }
+.reply-feedback button { margin-left: 8px; min-height: 44px; }
+.more-replies { margin: 8px 16px; min-height: 44px; }
+.reader-page button, .reader-page summary { touch-action: manipulation; user-select: none; -webkit-tap-highlight-color: transparent; }
+.reader-page button:active, .reader-page summary:active { transform: scale(.97); }
+.reader-page .thread-back { min-width: 44px; min-height: 44px; }
+.reader-page .reading-window { padding-bottom: env(safe-area-inset-bottom, 0px); }
+@media (max-width: 480px) {
+  .reader-page .focused-conversation .post { grid-template-columns: 36px minmax(0, 1fr); padding-inline: 12px; gap: 8px; }
+  .reader-page .focused-conversation .post > .avatar { width: 36px; height: 36px; }
+  .reader-page .focused-conversation .source-name { max-width: 115px; }
+  .reader-page .focused-conversation .handle { max-width: 70px; }
+  .reader-page .thread-reply-composer textarea { font-size: 16px; }
+}
+@media (prefers-reduced-motion: reduce) { .reader-page button, .reader-page summary { transition: none; } }
+
+.reader-page .is-focused > .post:before { display: none; }

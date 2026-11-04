@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useRef, useState, useCallback } from 'react'
+import { useEffect, useRef, useState, useCallback } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { summarize } from '../lib/summary'
 import { createThreadImage } from '../lib/export'
@@ -23,7 +23,7 @@ import type {
   ThreadRecord,
 } from '../lib/thread'
 import '../lib/appearance'
-import { Icon, Post, ThreadReplyComposer } from './Post'
+import { Icon, Post } from './Post'
 import { AppearancePanel } from './AppearancePanel'
 import { Dialog } from './Dialog'
 import { ExportOptions } from './ExportOptions'
@@ -34,17 +34,26 @@ import { CloudLibrary } from '../features/account/CloudLibrary'
 import { useCloudReader } from '../features/account/useCloudReader'
 import { accountLibraryKey, saveCloudDraft } from '../features/account/library'
 import { draftKey } from '../features/account/auth-state'
-import { Discussion, ThreadDiscussion } from '../features/discussion/Discussion'
+import {
+  Discussion,
+  DiscussionFeedback,
+  ThreadDiscussion,
+} from '../features/discussion/Discussion'
 import {
   openingIntentKey,
   moveOpeningIntent,
-  ConsentNotice,
-} from '../features/discussion/ConsentNotice'
+} from '../features/discussion/opening-intent'
+import { AutomaticDiscussion } from '../features/discussion/AutomaticDiscussion'
+import {
+  resolveReaderFocus,
+  readerFocusUrl,
+} from '../features/reader/ReaderNavigation'
+import { useNavigate } from '@tanstack/react-router'
+
 type Modal =
   | {
       kind: 'library' | 'appearance' | 'about' | 'export' | 'result' | 'account'
     }
-  | { kind: 'reply'; index: number }
   | { kind: 'media'; item: Media }
 type ReaderWindow = {
   win: Window | null
@@ -57,6 +66,8 @@ type ThreadlyProps = {
   readerToken?: string
   threadId?: string
   motion?: string
+  post?: string
+  comment?: string
 }
 export function Threadly(props: ThreadlyProps) {
   const account = useAccount()
@@ -96,17 +107,22 @@ export function Threadly(props: ThreadlyProps) {
     view
   )
 }
-function ThreadlyView({ readerToken, threadId, motion }: ThreadlyProps) {
+function ThreadlyView({
+  readerToken,
+  threadId,
+  motion,
+  post,
+  comment,
+}: ThreadlyProps) {
   const account = useAccount()
   const owner = account.user?.verified ? account.user.id : ''
   const cloud = useCloudReader(owner, threadId)
   const currentOwner = useRef(owner)
   currentOwner.current = owner
   const [selectionMode, setSelectionMode] = useState(false)
-  const [discussionReply, setDiscussionReply] = useState<{
-    index: number
-    nonce: number
-  } | null>(null)
+  const navigate = useNavigate()
+  const [replyRequest, setReplyRequest] = useState(0)
+  const returnPosition = useRef<{ y: number; index: number } | null>(null)
   const isReader = readerToken !== undefined || !!threadId
   const queryClient = useQueryClient()
   const [ready, setReady] = useState(false),
@@ -135,6 +151,88 @@ function ThreadlyView({ readerToken, threadId, motion }: ThreadlyProps) {
       png: boolean
     } | null>(null)
   const record = threadId ? cloud.record : deviceRecord
+  const focus =
+    record && (!threadId || cloud.query.data)
+      ? resolveReaderFocus(
+          { post, comment },
+          record,
+          threadId ? cloud.query.data : undefined,
+          owner,
+        )
+      : null
+  const viewKey =
+    (threadId ? owner + ':' + threadId : (readerToken ?? 'device')) +
+    ':' +
+    (focus?.postId ?? 'thread') +
+    ':' +
+    (focus?.commentId ?? '')
+  const wasFocused = useRef(false)
+  useEffect(() => {
+    if (focus) {
+      if (!wasFocused.current) window.scrollTo(0, 0)
+      if (focus.commentId)
+        document
+          .getElementById(
+            (threadId ? 'comment-' : 'local-comment-') + focus.commentId,
+          )
+          ?.scrollIntoView({ block: 'center' })
+    } else if (wasFocused.current && returnPosition.current) {
+      const saved = returnPosition.current
+      requestAnimationFrame(() => {
+        window.scrollTo(0, saved.y)
+        document
+          .getElementById('reader-post-' + saved.index)
+          ?.focus({ preventScroll: true })
+      })
+    }
+    wasFocused.current = !!focus
+  }, [viewKey])
+  function openPost(index: number, commentId?: string, replying = false) {
+    if (!record) return
+    const postId = threadId
+      ? cloud.query.data?.thread.posts[index]?.id
+      : String(index)
+    if (!postId) return
+    if (!focus) returnPosition.current = { y: window.scrollY, index }
+    void navigate({
+      to: '/',
+      search: {
+        reader: readerToken,
+        thread: threadId,
+        motion,
+        post: postId,
+        comment: commentId,
+      },
+      resetScroll: false,
+      replace: !!focus,
+    })
+    if (replying) {
+      setReplyRequest(Date.now())
+      requestAnimationFrame(() =>
+        document
+          .getElementById(
+            threadId ? 'discussion-reply-' + postId : 'local-reply-' + index,
+          )
+          ?.focus(),
+      )
+    }
+  }
+  function backToThread() {
+    if (returnPosition.current) window.history.back()
+    else
+      void navigate({
+        to: '/',
+        search: {
+          reader: readerToken,
+          thread: threadId,
+          motion,
+          post: undefined,
+          comment: undefined,
+        },
+        replace: true,
+        resetScroll: false,
+      })
+  }
   const readerProblem =
     threadId && cloud.notFound
       ? 'Thread not found.'
@@ -274,6 +372,7 @@ function ThreadlyView({ readerToken, threadId, motion }: ThreadlyProps) {
       document.removeEventListener('keydown', keyboard, true)
       window.removeEventListener('storage', storage)
       window.removeEventListener('message', message)
+      recordRef.current = null
       arrival.current?.cancel()
       if (timer.current) clearTimeout(timer.current)
       if (exportUrl.current) URL.revokeObjectURL(exportUrl.current)
@@ -649,16 +748,16 @@ function ThreadlyView({ readerToken, threadId, motion }: ThreadlyProps) {
   }
   function react(index: number, key: 'liked' | 'reposted' | 'bookmarked') {
     if (!record) return
+    if (threadId) {
+      void cloud.react(index, key)
+      return
+    }
     const old = record.interactions[index] || { replies: [] }
     const state = { ...old, [key]: !old[key] }
     updateRecord(
       { ...record, interactions: { ...record.interactions, [index]: state } },
       key === 'bookmarked' && !!state.bookmarked,
     )
-    if (threadId) {
-      notify('Reaction kept in your account draft. Select Save changes.')
-      return
-    }
     if (key === 'reposted')
       notify(
         state.reposted
@@ -775,11 +874,9 @@ function ThreadlyView({ readerToken, threadId, motion }: ThreadlyProps) {
             ? 'A little less reading. A lot more clarity.'
             : modal?.kind === 'export'
               ? 'Save your thread as an image'
-              : modal?.kind === 'reply'
-                ? 'Your replies to tweet ' + (modal.index + 1)
-                : modal?.kind === 'media'
-                  ? 'Image from the article'
-                  : 'Your image is ready'
+              : modal?.kind === 'media'
+                ? 'Image from the article'
+                : 'Your image is ready'
   return (
     <>
       <header className="app-header">
@@ -1187,14 +1284,11 @@ function ThreadlyView({ readerToken, threadId, motion }: ThreadlyProps) {
             className="reader panel"
             aria-label="Twitter-style reading thread"
           >
-            {threadId && (
+            {threadId && (cloud.draft || cloud.error || cloud.query.error) && (
               <div className="account-sync-status" role="status">
-                {cloud.draft
-                  ? 'Unsaved account draft. Select Save changes when ready.'
-                  : 'Private account thread'}
                 {cloud.query.error && (
                   <p>
-                    Connection unavailable. Reading the last cached version.{' '}
+                    Connection unavailable.{' '}
                     <button onClick={() => void cloud.query.refetch()}>
                       Retry reading
                     </button>
@@ -1203,13 +1297,13 @@ function ThreadlyView({ readerToken, threadId, motion }: ThreadlyProps) {
                 {cloud.error && <p role="alert">{cloud.error}</p>}
                 {cloud.draft && (
                   <>
+                    <span>Your edit is saved in this tab.</span>
                     <button
-                      className="secondary"
                       disabled={cloud.busy}
                       onClick={() => void cloud.save()}
                     >
                       Save changes
-                    </button>{' '}
+                    </button>
                     <button disabled={cloud.busy} onClick={cloud.discard}>
                       Discard draft and reload
                     </button>
@@ -1221,8 +1315,15 @@ function ThreadlyView({ readerToken, threadId, motion }: ThreadlyProps) {
               <a
                 className="thread-back"
                 href={backHref}
-                onClick={returnIntent}
-                aria-label="Back to create a thread"
+                onClick={(event) => {
+                  if (focus) {
+                    event.preventDefault()
+                    backToThread()
+                  } else returnIntent(event)
+                }}
+                aria-label={
+                  focus ? 'Back to thread' : 'Back to create a thread'
+                }
               >
                 <Icon name="back" />
               </a>
@@ -1346,141 +1447,119 @@ function ThreadlyView({ readerToken, threadId, motion }: ThreadlyProps) {
                     {exportBusy ? 'Creating image…' : 'Save selected'}
                   </button>
                 </div>
-                <div id="thread" className="thread">
-                  {threadId && <ConsentNotice threadId={threadId} />}
-                  {record.posts.map((_, i) => (
-                    <Fragment key={record.id + ':' + i}>
+                {threadId && <AutomaticDiscussion threadId={threadId} />}
+                {threadId && !focus && (
+                  <DiscussionFeedback
+                    threadId={threadId}
+                    postId={cloud.query.data?.thread.posts[0]?.id ?? ''}
+                  />
+                )}
+                <div
+                  id="thread"
+                  className={'thread' + (focus ? ' is-focused' : '')}
+                  data-reader-container
+                  data-view-key={viewKey}
+                >
+                  {(focus ? [focus.index] : record.posts.map((_, i) => i)).map(
+                    (i) => (
                       <Post
-                        selectionMode={selectionMode}
+                        key={record.id + ':' + i}
+                        prominent={!!focus}
                         record={record}
                         index={i}
                         selected={selected.has(i)}
+                        selectionMode={selectionMode}
+                        postId={
+                          threadId
+                            ? cloud.query.data?.thread.posts[i]?.id
+                            : String(i)
+                        }
+                        reactionBusy={cloud.reactionBusy}
+                        replyCount={
+                          threadId
+                            ? cloud.query.data?.comments.filter(
+                                (c) =>
+                                  c.postId ===
+                                  cloud.query.data?.thread.posts[i]?.id,
+                              ).length
+                            : undefined
+                        }
                         onSelect={toggleSelection}
+                        onOpen={openPost}
                         onEdit={(index, value) => {
                           if (value === record.posts[index]) return
                           const posts = [...record.posts]
                           posts[index] = value
                           updateRecord({ ...record, posts })
+                          if (threadId) void cloud.save()
                         }}
                         onReact={react}
-                        onReply={(index) => {
-                          if (threadId) {
-                            setDiscussionReply({ index, nonce: Date.now() })
-                          } else if (index === 0)
-                            document.getElementById('threadReply')?.focus()
-                          else setModal({ kind: 'reply', index })
-                        }}
+                        onReply={(index) => openPost(index, undefined, true)}
                         onCopy={(i) => void copy(numbered(i))}
-                        onShare={(i) => void share(i)}
+                        onShare={(i) => {
+                          if (threadId)
+                            void copy(
+                              location.origin +
+                                readerFocusUrl(location.href, {
+                                  postId: cloud.query.data!.thread.posts[i].id,
+                                }),
+                            )
+                          else void share(i)
+                        }}
                         onExport={(i) => void exportImages([i])}
                         onImage={(item) => setModal({ kind: 'media', item })}
                       />
-                      {threadId && (
-                        <button
-                          className="text-button"
-                          disabled={cloud.busy}
-                          onClick={() => {
-                            cloud.edit(
-                              record,
-                              cloud.query.data?.thread.posts[i].id,
-                            )
-                            void cloud.save()
-                          }}
-                        >
-                          {cloud.readPostId ===
-                          cloud.query.data?.thread.posts[i].id
-                            ? 'Read through here'
-                            : 'Mark read through post ' + (i + 1)}
-                        </button>
-                      )}
-                      {threadId && cloud.query.data?.thread.posts[i] && (
-                        <div
-                          id={
-                            'discussion-post-' +
-                            cloud.query.data.thread.posts[i].id
+                    ),
+                  )}
+                  {focus &&
+                    (threadId ? (
+                      <Discussion
+                        key={focus.postId}
+                        threadId={threadId}
+                        postId={focus.postId}
+                        commentId={focus.commentId}
+                        replyRequest={replyRequest}
+                        onOpen={(id) => openPost(focus.index, id)}
+                      />
+                    ) : (
+                      <Replies
+                        key={record.id + ':' + focus.index}
+                        record={record}
+                        index={focus.index}
+                        storageKey={
+                          'threadly:local-reply:' +
+                          record.id +
+                          ':' +
+                          focus.index
+                        }
+                        onOpen={(id) => openPost(focus.index, String(id))}
+                        onReply={(value) => {
+                          const state = record.interactions[focus.index] || {
+                            replies: [],
                           }
-                        >
-                          <Discussion
-                            threadId={threadId}
-                            postId={cloud.query.data.thread.posts[i].id}
-                            lead={i === 0}
-                            replyRequest={
-                              discussionReply?.index === i
-                                ? discussionReply.nonce
-                                : 0
-                            }
-                          />
-                        </div>
-                      )}
-                      {i === 0 && !threadId && (
-                        <>
-                          <ThreadReplyComposer
-                            storageKey={
-                              threadId
-                                ? draftKey(owner, 'reply:' + threadId + ':0')
-                                : undefined
-                            }
-                            privateReply={!!threadId}
-                            onReply={(value) => {
-                              if (threadId) return cloud.reply(0, value)
-                              const state: Reaction = record
-                                .interactions[0] || { replies: [] }
-                              updateRecord(
-                                {
-                                  ...record,
-                                  interactions: {
-                                    ...record.interactions,
-                                    0: {
-                                      ...state,
-                                      replies: [
-                                        ...(state.replies || []),
-                                        {
-                                          text: value,
-                                          date: new Date().toISOString(),
-                                        },
-                                      ],
+                          updateRecord(
+                            {
+                              ...record,
+                              interactions: {
+                                ...record.interactions,
+                                [focus.index]: {
+                                  ...state,
+                                  replies: [
+                                    ...(state.replies || []),
+                                    {
+                                      text: value,
+                                      date: new Date().toISOString(),
                                     },
-                                  },
+                                  ],
                                 },
-                                true,
-                              )
-                              notify('Reply saved on this device')
-                            }}
-                          />
-                          {!!record.interactions[0]?.replies?.length && (
-                            <div
-                              className="thread-local-replies"
-                              aria-label={
-                                threadId
-                                  ? 'Your private replies'
-                                  : 'Your local replies'
-                              }
-                            >
-                              {record.interactions[0].replies.map(
-                                (reply, index) => (
-                                  <article key={index}>
-                                    <div className="avatar">
-                                      <Icon name="user" />
-                                    </div>
-                                    <div>
-                                      <strong>
-                                        You{' '}
-                                        <span>
-                                          @you ·{' '}
-                                          {threadId ? 'private' : 'local'}
-                                        </span>
-                                      </strong>
-                                      <p>{reply.text}</p>
-                                    </div>
-                                  </article>
-                                ),
-                              )}
-                            </div>
-                          )}
-                        </>
-                      )}
-                    </Fragment>
-                  ))}
+                              },
+                            },
+                            true,
+                          )
+                          notify('Reply saved on this device')
+                        }}
+                      />
+                    ))}
                 </div>
                 <div id="readerFoot" className="reader-bottom">
                   End of thread · {record.posts.length} posts
@@ -1591,40 +1670,6 @@ function ThreadlyView({ readerToken, threadId, motion }: ThreadlyProps) {
                 are fetched by the server.
               </p>
             </>
-          ) : modal.kind === 'reply' && record ? (
-            <Replies
-              key={record.id + modal.index}
-              record={record}
-              index={modal.index}
-              storageKey={
-                threadId
-                  ? draftKey(owner, 'reply:' + threadId + ':' + modal.index)
-                  : undefined
-              }
-              onReply={(value) => {
-                if (threadId) return cloud.reply(modal.index, value)
-                const state: Reaction = record.interactions[modal.index] || {
-                  replies: [],
-                }
-                updateRecord(
-                  {
-                    ...record,
-                    interactions: {
-                      ...record.interactions,
-                      [modal.index]: {
-                        ...state,
-                        replies: [
-                          ...(state.replies || []),
-                          { text: value, date: new Date().toISOString() },
-                        ],
-                      },
-                    },
-                  },
-                  true,
-                )
-                notify('Reply saved on this device')
-              }}
-            />
           ) : modal.kind === 'media' ? (
             <>
               <img

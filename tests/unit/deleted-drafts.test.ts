@@ -310,3 +310,61 @@ test('conversation_delete_scrubs_full_base_and_mounted_draft_but_keeps_source_ed
   expect(reader.record?.posts[0]).toBe('Unsaved edit')
   expect(JSON.stringify(reader.draft)).not.toContain('Deleted discussion')
 })
+
+test('post_metadata_action_preserves_source_draft_revision_and_other_flags', async () => {
+  storeDraft()
+  runtime.client.setQueryData(
+    ['account', 'alice', 'thread', 'thread'],
+    runtime.query.data,
+  )
+  const requests: any[] = []
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (path, init) => {
+      requests.push({ path, input: JSON.parse(init.body), signal: init.signal })
+      return Response.json({ liked: true, reposted: false, bookmarked: true })
+    }),
+  )
+  const reader = render(() => useCloudReader('alice', 'thread'))
+  await reader.react(0, 'bookmarked')
+  expect(requests).toHaveLength(1)
+  expect(requests[0].path).toBe('/api/threads/thread/reactions')
+  expect(requests[0].input).toEqual({ postId: 'post', bookmarked: true })
+  const next = render(() => useCloudReader('alice', 'thread'))
+  expect(next.record?.posts[0]).toBe('Unsaved edit')
+  expect(next.record?.sourceText).toBe('Private article')
+  expect(next.record?.interactions[0]).toMatchObject({
+    liked: true,
+    bookmarked: true,
+    replies: [{ text: 'Deleted discussion' }],
+  })
+  expect(next.draft?.base.thread.revision).toBe(1)
+})
+test('owner_unmount_aborts_post_metadata_and_late_response_never_revives_private_cache', async () => {
+  storeDraft()
+  let finish!: (r: Response) => void, signal!: AbortSignal
+  vi.stubGlobal(
+    'fetch',
+    vi.fn((_path, init) => {
+      signal = init.signal
+      return new Promise<Response>((resolve) => {
+        finish = resolve
+      })
+    }),
+  )
+  const reader = render(() => useCloudReader('alice', 'thread'))
+  const pending = reader.react(0, 'liked')
+  for (const cell of runtime.cells) cell?.cleanup?.()
+  expect(signal.aborted).toBe(true)
+  runtime.cells = []
+  runtime.query = { data: snapshot('bob'), error: null }
+  render(() => useCloudReader('bob', 'thread'))
+  finish(Response.json({ liked: false, reposted: false, bookmarked: false }))
+  await pending
+  expect(
+    runtime.client.getQueryData(['account', 'alice', 'thread', 'thread']),
+  ).toBeUndefined()
+  expect(
+    sessionStorage.getItem(draftKey('alice', 'thread:thread')),
+  ).not.toBeNull()
+})

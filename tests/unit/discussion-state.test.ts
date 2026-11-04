@@ -266,7 +266,7 @@ test('provider_failure_after_saved_comment_clears_composer_and_retry_does_not_re
 })
 test('opening_requires_creation_intent_origin_flag_and_consent', async () => {
   const { shouldOpenDiscussion } =
-    await import('../../src/features/discussion/ConsentNotice')
+    await import('../../src/features/discussion/opening-intent')
   const snapshot = {
     isImported: false,
   } as import('../../src/lib/account-thread').ThreadSnapshot
@@ -347,7 +347,7 @@ test('old_cancel_after_effect_replay_cannot_overwrite_new_turn', async () => {
 
 test('new_creation_intent_moves_to_one_reader_and_cannot_restart_on_parent_reopen', async () => {
   const { moveOpeningIntent } =
-    await import('../../src/features/discussion/ConsentNotice')
+    await import('../../src/features/discussion/opening-intent')
   const make = () => {
     const data = new Map<string, string>()
     return {

@@ -109,11 +109,11 @@ function inspectButton(element: any): any {
   if (!element || typeof element !== 'object') return undefined
   if (
     element.type === 'button' &&
-    element.props.className.includes('discussion-memory-button')
+    element.props.className?.includes('discussion-memory-button')
   )
     return element
-  const children = element.props?.children
-  for (const child of Array.isArray(children) ? children : [children]) {
+  const children = [element.props?.children, element.props?.menu]
+  for (const child of children.flat(Infinity)) {
     const found = inspectButton(child)
     if (found) return found
   }
@@ -363,3 +363,85 @@ for (const kind of ['reaction', 'post', 'progress'] as const) {
     expect(fetch).toHaveBeenCalledTimes(1)
   })
 }
+
+function componentProp(node: any, name: string): any {
+  if (!node || typeof node !== 'object') return
+  if (name in (node.props ?? {})) return node.props[name]
+  for (const child of [node.props?.children, node.props?.menu].flat(Infinity)) {
+    const found = componentProp(child, name)
+    if (found !== undefined) return found
+  }
+}
+test('comment_actions_call_actual_owner_functions_and_preserve_other_flags', async () => {
+  const calls: any[] = [],
+    saved: any[] = []
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (path, init) => {
+      calls.push({
+        path,
+        input: JSON.parse(init.body),
+        credentials: init.credentials,
+        cache: init.cache,
+      })
+      return Response.json({ liked: true, reposted: true, bookmarked: true })
+    }),
+  )
+  const tree = render(commentHost, () =>
+    CommentItem({
+      owner: 'alice',
+      comment,
+      name: 'Flint',
+      parent: null,
+      sourceText: '',
+      onReply() {},
+      reaction: { liked: false, reposted: true, bookmarked: true },
+      onReaction: (state) => saved.push(state),
+    }),
+  )
+  effects(commentHost)
+  await componentProp(tree, 'onReact')('liked')
+  await vi.waitFor(() =>
+    expect(saved).toEqual([{ liked: true, reposted: true, bookmarked: true }]),
+  )
+  expect(calls).toEqual([
+    {
+      path: '/api/comments/comment/reactions',
+      input: { liked: true },
+      credentials: 'same-origin',
+      cache: 'no-store',
+    },
+  ])
+})
+test('late_comment_reaction_after_owner_unmount_is_aborted_and_ignored', async () => {
+  let finish!: (r: Response) => void, signal!: AbortSignal
+  const saved: any[] = []
+  vi.stubGlobal(
+    'fetch',
+    vi.fn((_path, init) => {
+      signal = init.signal
+      return new Promise<Response>((resolve) => {
+        finish = resolve
+      })
+    }),
+  )
+  const tree = render(commentHost, () =>
+    CommentItem({
+      owner: 'alice',
+      comment,
+      name: 'Flint',
+      parent: null,
+      sourceText: '',
+      onReply() {},
+      onReaction: (state) => saved.push(state),
+    }),
+  )
+  effects(commentHost)
+  componentProp(tree, 'onReact')('bookmarked')
+  commentHost.cleanup.forEach((fn) => fn())
+  expect(signal.aborted).toBe(true)
+  finish(Response.json({ liked: false, reposted: false, bookmarked: true }))
+  await Promise.resolve()
+  await Promise.resolve()
+  expect(saved).toEqual([])
+})

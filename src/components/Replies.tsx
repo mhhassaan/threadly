@@ -1,66 +1,63 @@
+import { readerFocusUrl } from '../features/reader/ReaderNavigation'
 import type { ThreadRecord } from '../lib/thread'
-import {
-  useReplyComposer,
-  type ReplySubmit,
-} from '../features/account/reply-composer'
-
+import { ThreadReplyComposer } from './Post'
+import { PostFrame, PostActions } from './PostChrome'
+import type { ReplySubmit } from '../features/account/reply-composer'
 export function Replies({
   record,
   index,
   onReply,
   storageKey,
+  onOpen,
 }: {
   record: ThreadRecord
   index: number
   onReply: ReplySubmit
   storageKey?: string
+  onOpen?: (reply: number) => void
 }) {
-  const { value, sending, change, submit } = useReplyComposer(
-    onReply,
-    storageKey,
-  )
   return (
-    <>
-      <p className="dialog-description">
-        {storageKey
-          ? 'Replies are saved privately in your account. Unsent drafts stay in this tab until you retry.'
-          : 'A space for your thoughts. Replies are saved on this device and are not published to Twitter/X.'}
-      </p>
-      <blockquote className="reply-quote">{record.posts[index]}</blockquote>
-      <div className="local-replies">
-        {record.interactions[index]?.replies?.map((r, i) => (
-          <article key={i}>
-            <strong>You</strong>
-            <p>{r.text}</p>
-          </article>
-        ))}
-      </div>
-      <form
-        className="reply-form"
-        onSubmit={(e) => {
-          e.preventDefault()
-          void submit()
-        }}
-      >
-        <label htmlFor="replyText">Add a reply</label>
-        <textarea
-          id="replyText"
-          maxLength={2000}
-          disabled={sending}
-          placeholder="What does this idea make you think of?"
-          required
-          data-autofocus
-          value={value}
-          onChange={(e) => change(e.target.value)}
-        />
-        <button
-          className="copy-primary"
-          type="submit"
-          disabled={!value.trim() || sending}
+    <section aria-label="Replies" className="focused-conversation">
+      <ThreadReplyComposer
+        inputId={'local-reply-' + index}
+        storageKey={storageKey}
+        onReply={onReply}
+      />
+      {record.interactions[index]?.replies?.map((r, i) => (
+        <PostFrame
+          key={i}
+          name="You"
+          handle="@you"
+          id={'local-comment-' + i}
+          onOpen={() => onOpen?.(i)}
+          meta={
+            r.date ? (
+              <time dateTime={r.date}>
+                {new Date(r.date).toLocaleDateString()}
+              </time>
+            ) : undefined
+          }
         >
-          Add reply
-        </button>
-      </form>
-    </>
+          <div className="posttext">{r.text}</div>
+          <PostActions
+            state={{}}
+            onReply={() =>
+              document.getElementById('local-reply-' + index)?.focus()
+            }
+            onShare={() => {
+              void navigator.clipboard
+                .writeText(
+                  location.origin +
+                    readerFocusUrl(location.href, {
+                      postId: String(index),
+                      commentId: String(i),
+                    }),
+                )
+                .catch(() => {})
+            }}
+          />
+        </PostFrame>
+      ))}
+    </section>
   )
 }

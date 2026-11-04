@@ -21,6 +21,7 @@ import {
   accountRequest,
   accountThreadKey,
   saveCloudDraft,
+  savePostReaction,
   useCloudThread,
 } from './library'
 
@@ -44,6 +45,9 @@ export function useCloudReader(owner: string, id?: string) {
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
   const [deleted, setDeleted] = useState(false)
+  const [reactionBusy, setReactionBusy] = useState(false)
+  const reactionSignal = useRef<AbortController | null>(null)
+  useEffect(() => () => reactionSignal.current?.abort(), [owner, id])
   const terminalNotFound =
     query.error instanceof ApiError && query.error.status === 404
   const active = useRef(true),
@@ -62,6 +66,9 @@ export function useCloudReader(owner: string, id?: string) {
       const detail = (event as CustomEvent<PrivateDeletion>).detail
       if (detail.owner !== owner || detail.threadId !== id) return
       generation.current++
+      reactionSignal.current?.abort()
+      reactionSignal.current = null
+      setReactionBusy(false)
       sending.current = false
       setBusy(false)
       setError('')
@@ -78,6 +85,7 @@ export function useCloudReader(owner: string, id?: string) {
   }, [owner, id])
   useEffect(() => {
     if (terminalNotFound && owner && id) {
+      reactionSignal.current?.abort()
       erasePrivateDrafts({ owner, threadId: id })
       client.removeQueries({ queryKey: accountThreadKey(owner, id) })
     }
@@ -98,6 +106,119 @@ export function useCloudReader(owner: string, id?: string) {
     deleted || terminalNotFound
       ? null
       : (draft?.record ?? (query.data ? toLegacyRecord(query.data) : null))
+  async function react(
+    index: number,
+    flag: 'liked' | 'reposted' | 'bookmarked',
+  ) {
+    const snapshot = query.data
+    if (
+      !snapshot ||
+      !record ||
+      reactionSignal.current ||
+      deleted ||
+      terminalNotFound
+    )
+      return
+    const post = snapshot.thread.posts[index]
+    if (!post) return
+    const controller = new AbortController(),
+      version = generation.current
+    reactionSignal.current = controller
+    setReactionBusy(true)
+    setError('')
+    try {
+      const flags = await savePostReaction(
+        owner,
+        id!,
+        post.id,
+        { [flag]: !record.interactions[index]?.[flag] },
+        controller.signal,
+      )
+      if (
+        controller.signal.aborted ||
+        !active.current ||
+        version !== generation.current
+      )
+        return
+      client.setQueryData<ThreadSnapshot>(
+        accountThreadKey(owner, id!),
+        (previous) => {
+          if (!previous) return previous
+          const source = previous.thread.record
+          return {
+            ...previous,
+            thread: {
+              ...previous.thread,
+              record: {
+                ...source,
+                interactions: {
+                  ...source.interactions,
+                  [index]: {
+                    ...source.interactions[index],
+                    replies: source.interactions[index]?.replies ?? [],
+                    ...flags,
+                  },
+                },
+              },
+            },
+          }
+        },
+      )
+      if (currentDraft.current) {
+        const value = currentDraft.current
+        const apply = (source: ThreadRecord): ThreadRecord => ({
+          ...source,
+          interactions: {
+            ...source.interactions,
+            [index]: {
+              ...source.interactions[index],
+              replies: source.interactions[index]?.replies ?? [],
+              ...flags,
+            },
+          },
+        })
+        retain({
+          ...value,
+          record: apply(value.record),
+          base: {
+            ...value.base,
+            thread: {
+              ...value.base.thread,
+              record: apply(value.base.thread.record),
+            },
+          },
+        })
+      }
+      void client.invalidateQueries({ queryKey: accountLibraryKey(owner) })
+    } catch (reason) {
+      if (
+        !controller.signal.aborted &&
+        active.current &&
+        version === generation.current
+      ) {
+        if (reason instanceof ApiError && reason.status === 404) {
+          erasePrivateDrafts({ owner, threadId: id! })
+          client.removeQueries({ queryKey: accountThreadKey(owner, id!) })
+          retain(null)
+          setDeleted(true)
+        } else
+          setError(
+            reason instanceof Error
+              ? reason.message
+              : 'Could not save reaction. Try again.',
+          )
+      }
+    } finally {
+      if (
+        !controller.signal.aborted &&
+        active.current &&
+        version === generation.current
+      ) {
+        reactionSignal.current = null
+        setReactionBusy(false)
+      }
+    }
+  }
   function edit(next: ThreadRecord, readPostId?: string) {
     if (deleted || terminalNotFound) return
     const base = currentDraft.current?.base ?? query.data
@@ -236,6 +357,8 @@ export function useCloudReader(owner: string, id?: string) {
     }
   }
   return {
+    react,
+    reactionBusy,
     notFound: deleted || terminalNotFound,
     record,
     query,

@@ -1,6 +1,6 @@
 import { env } from 'cloudflare:workers'
 import { afterEach, beforeAll, beforeEach, expect, test, vi } from 'vitest'
-import { applyAuthMigrations, applyMigration } from './migrations'
+import { applyMigration } from './migrations'
 import { createAuth } from '../../src/server/auth/auth'
 import { requireUser } from '../../src/server/auth/session'
 import type { Platform } from '../../src/server/platform'
@@ -13,9 +13,12 @@ import {
   handleThread,
   handleComments,
 } from '../../src/server/data/api'
-import readingMigration from '../../drizzle/migrations/0003_reading.sql?raw'
-import importMigration from '../../drizzle/migrations/0004_import.sql?raw'
 
+const migrations = import.meta.glob('../../drizzle/migrations/*.sql', {
+  query: '?raw',
+  import: 'default',
+  eager: true,
+}) as Record<string, string>
 const base = 'http://127.0.0.1:4176'
 let platform: Platform
 let messages: { text: string }[]
@@ -99,9 +102,8 @@ function call(
 }
 const threadPath = (t: OwnedThread) => `/api/threads/${t.id}`
 beforeAll(async () => {
-  await applyAuthMigrations(env.DB)
-  await applyMigration(env.DB, readingMigration)
-  await applyMigration(env.DB, importMigration)
+  for (const path of Object.keys(migrations).sort())
+    await applyMigration(env.DB, migrations[path])
 })
 beforeEach(async () => {
   people.clear()

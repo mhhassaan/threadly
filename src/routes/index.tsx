@@ -1,7 +1,10 @@
 import { createFileRoute } from '@tanstack/react-router'
+import { readerSearchParam } from '../features/reader/ReaderNavigation'
 import { Threadly } from '../components/Threadly'
 export const Route = createFileRoute('/')({
   validateSearch: (search: Record<string, unknown>) => ({
+    post: readerSearchParam(search.post),
+    comment: readerSearchParam(search.comment),
     reader: typeof search.reader === 'string' ? search.reader : undefined,
     thread:
       typeof search.thread === 'string' &&
@@ -23,6 +26,8 @@ function Home() {
       readerToken={search.thread ? undefined : search.reader}
       threadId={search.thread}
       motion={search.motion}
+      post={search.post}
+      comment={search.comment}
     />
   )
 }
