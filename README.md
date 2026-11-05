@@ -7,10 +7,10 @@ Threadly turns articles, pasted text, and TXT or Markdown files into editable re
 ## Features
 
 - Import a public article URL, paste text, or upload TXT/Markdown up to 1 MB; choose summary depth and thread length.
-- Read in a separate tab/window, edit posts, copy or download text, and export all, individual, or selected posts as themed PNGs. Long exports become numbered PNG pages in a ZIP.
+- Read source posts in a separate tab/window, open a post and its replies, edit through the post menu, copy or download text, and export all, individual, or selected posts as themed PNGs. Long exports become numbered PNG pages in a ZIP.
 - Keep a guest library on this device, or explicitly import chosen device copies into a verified account. Login never silently imports guest text.
-- Sync private account threads, source, edits, reading progress, reactions and discussions across devices. Revision conflicts preserve drafts for deliberate recovery.
-- Enable clearly labeled fictional AI participants after processing consent. Four recurring voices and thread-specific guests can respond; some posts remain quiet.
+- Sync private account threads, source, edits, reading progress, reactions and discussions across devices. Reading progress advances quietly after sustained post visibility; it does not edit source or start AI work. Revision conflicts preserve drafts for deliberate recovery.
+- New accounts acknowledge AI processing at signup and start with AI discussion on and memory off. Account owns pause/resume and processing acknowledgement for existing accounts; saved Pause choices stay paused. Clearly labeled fictional AI participants include four recurring voices and thread-specific guests; some posts remain quiet.
 - Inspect remembered quotes and supporting conversations, delete individual memories, reset a regular or all memory, pause AI/memory, delete conversations or remove the account using the current password.
 - Choose White, Gray, Dim, Dark or Paper, custom colors, keyboard controls and reduced-motion support. The X-style reader and local fonts remain intact.
 

@@ -32,7 +32,13 @@ import { Replies } from './Replies'
 import { useAccount } from '../features/account/auth-client'
 import { CloudLibrary } from '../features/account/CloudLibrary'
 import { useCloudReader } from '../features/account/useCloudReader'
-import { accountLibraryKey, saveCloudDraft } from '../features/account/library'
+import {
+  accountLibraryKey,
+  accountThreadKey,
+  saveCloudDraft,
+} from '../features/account/library'
+import type { ThreadSnapshot } from '../lib/account-thread'
+import { useAutomaticReadingProgress } from '../features/reader/useAutomaticReadingProgress'
 import { draftKey } from '../features/account/auth-state'
 import {
   Discussion,
@@ -120,6 +126,9 @@ function ThreadlyView({
   const currentOwner = useRef(owner)
   currentOwner.current = owner
   const [selectionMode, setSelectionMode] = useState(false)
+  const [readerContainer, setReaderContainer] = useState<HTMLDivElement | null>(
+    null,
+  )
   const navigate = useNavigate()
   const [replyRequest, setReplyRequest] = useState(0)
   const returnPosition = useRef<{ y: number; index: number } | null>(null)
@@ -166,6 +175,36 @@ function ThreadlyView({
     (focus?.postId ?? 'thread') +
     ':' +
     (focus?.commentId ?? '')
+  useAutomaticReadingProgress({
+    owner,
+    threadId,
+    posts: cloud.query.data?.thread.posts ?? [],
+    readPostId: cloud.query.data?.readPostId,
+    container: readerContainer,
+    viewKey,
+    enabled:
+      !!threadId &&
+      !!record &&
+      !cloud.notFound &&
+      cloud.query.data?.thread.ownerId === owner,
+    onSaved(progress) {
+      queryClient.setQueryData<ThreadSnapshot>(
+        accountThreadKey(owner, threadId!),
+        (previous) => {
+          if (!previous || previous.thread.ownerId !== owner) return previous
+          const position = (id: string | null) =>
+            previous.thread.posts.find((post) => post.id === id)?.position ?? -1
+          if (position(progress.postId) <= position(previous.readPostId))
+            return previous
+          return {
+            ...previous,
+            readPostId: progress.postId,
+            readAt: progress.readAt,
+          }
+        },
+      )
+    },
+  })
   const wasFocused = useRef(false)
   useEffect(() => {
     if (focus) {
@@ -1457,6 +1496,7 @@ function ThreadlyView({
                 <div
                   id="thread"
                   className={'thread' + (focus ? ' is-focused' : '')}
+                  ref={setReaderContainer}
                   data-reader-container
                   data-view-key={viewKey}
                 >

@@ -40,8 +40,14 @@ Any unsupported citation, personal-profile inference, invented action/experience
 
 `tests/unit/deepseek.test.ts` covers actual 503/network retry paths and persistent failures, 401/invalid-output non-retry, output/byte caps, abort and shared 45 second deadline. Source-misinformation fixtures place the claim in actual `sourceText` and assert its untrusted source passage and attribution guidance. Memory/turn/privacy tests cover atomic fences, idempotency, cancellation, consent and deletion. `tests/unit/ai-evaluation.test.mjs` verifies dry-run, request/spend caps, failed-call charging, production prompt/cast/source/memory construction and actual validator rejection of an invented speaker without external HTTP.
 
-Browser qualification is recorded in the local Task 12 report; desktop and 390 px emulation establish browser geometry only, not physical phone behavior. Reduced-motion behavior may only be called browser-tested when the actual browser preference/emulation supports it. No OS preference changes are part of qualification.
+Browser qualification is recorded in the local implementation reports; desktop and 390 px emulation establish browser geometry only, not physical phone behavior. Reduced-motion behavior may only be called browser-tested when the actual browser preference/emulation supports it. No OS preference changes are part of qualification.
 
 ## Unverified production checks
 
 Production Resend delivery and sending-domain/DNS acceptance, actual DeepSeek tone/factual grounding/memory behavior, real upstream latency and deployed billed Workers CPU/free-tier feasibility remain unverified. Earlier local secure-hash/process-CPU measurements warrant an actual platform check; wall clock and local process totals are not production CPU evidence. No domain purchase, resource provisioning, deployment, live billing or paid-plan activation is implied by these tests. Optional sharing with other real users remains deferred.
+
+## Reader integration checks
+
+`tests/unit/reading-progress.test.ts` drives the actual progress hook with controlled observers and timers: scoped targets, tall/layout-changing posts, dwell/debounce, unchanged revisits, hidden/unmounted readers, owner/deletion cancellation, offline/no-retry and stale responses. These tests do not measure whether a person understood the source.
+
+`tests/worker/x-reader-journey.test.ts` verifies actual Better Auth signup disclosure, captured verification and sessions against local D1 with fake provider/mail responses. It exercises default preferences, bounded opening, imported/revisited reads, focused comment targeting, metadata during delayed generation and memory publication, pause, owner boundaries and conversation/thread/account deletion. Fake responses qualify integration and storage safeguards; they do not establish actual model style or quality.
