@@ -69,6 +69,7 @@ export async function retrieveGenerationSource(
   p: Platform,
   input: GenerationInput,
   signal: AbortSignal,
+  beforeExternal?: () => Promise<void>,
 ): Promise<GenerationSource> {
   if (signal.aborted) throw unavailable()
   checkSourceLength(input.source)
@@ -111,6 +112,8 @@ export async function retrieveGenerationSource(
     if (signal.aborted) throw unavailable()
   }
   if (!p.env.deepseekApiKey || signal.aborted) throw unavailable()
+  await beforeExternal?.()
+  if (signal.aborted) throw unavailable()
   try {
     return await withDeadline(signal, 10000, async (s) => {
       const response = await fetch('https://api.deepseek.com/v1/tools/fetch', {

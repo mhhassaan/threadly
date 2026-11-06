@@ -355,3 +355,64 @@ export const failGeneration = (
     'failed',
     /^[A-Z][A-Z0-9_]{0,63}$/.test(code) ? code : 'GENERATION_FAILED',
   )
+
+/** Revalidate the captured credential, settings epoch, claim and lease before paid work. */
+export async function assertGenerationCurrent(
+  p: Platform,
+  principal: Principal,
+  id: string,
+): Promise<void> {
+  await retireGenerationJobs(p, principal)
+  await assertPrincipal(p, principal)
+  if (
+    !p.env.aiEnabled ||
+    !(await p.db
+      .prepare(
+        `SELECT 1 FROM generation_jobs WHERE id=? AND principal_key=? AND status='running' AND ${currentJobFence}`,
+      )
+      .bind(id, key(principal))
+      .first())
+  )
+    throw new ApiError(
+      409,
+      'GENERATION_STALE',
+      'Generation is no longer active',
+    )
+}
+
+export async function readGenerationByRequest(
+  p: Platform,
+  principal: Principal,
+  requestId: string,
+): Promise<GenerationStatus> {
+  await assertPrincipal(p, principal)
+  const row = await p.db
+    .prepare(
+      'SELECT id FROM generation_jobs WHERE principal_key=? AND request_id=?',
+    )
+    .bind(key(principal), requestId)
+    .first<{ id: string }>()
+  if (!row) throw new ApiError(404, 'NOT_FOUND', 'Generation not found')
+  return readGeneration(p, principal, row.id)
+}
+/** Stored source/options are the only execution input; callers cannot replace an admitted payload. */
+export async function readGenerationInput(
+  p: Platform,
+  principal: Principal,
+  id: string,
+): Promise<GenerationInput> {
+  await assertGenerationCurrent(p, principal, id)
+  const row = await p.db
+    .prepare(
+      'SELECT input_json FROM generation_jobs WHERE principal_key=? AND id=?',
+    )
+    .bind(key(principal), id)
+    .first<{ input_json: string | null }>()
+  if (!row?.input_json)
+    throw new ApiError(
+      409,
+      'GENERATION_STALE',
+      'Generation is no longer active',
+    )
+  return normalizeInput(JSON.parse(row.input_json))
+}

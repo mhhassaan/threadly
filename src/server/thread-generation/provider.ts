@@ -79,6 +79,7 @@ export async function writeGenerationThread(
   p: Platform,
   prepared: PreparedGenerationRequest,
   signal: AbortSignal,
+  beforeExternal?: () => Promise<void>,
 ): Promise<{
   title: string
   posts: string[]
@@ -96,6 +97,9 @@ export async function writeGenerationThread(
   )
     throw failure()
   for (let attempt = 1; attempt <= 2; attempt++) {
+    if (signal.aborted) throw failure()
+    await beforeExternal?.()
+    if (signal.aborted) throw failure()
     let retryable = false
     try {
       return await withDeadline(signal, 45000, async (s) => {

@@ -14,6 +14,7 @@ import { Route as AccountRouteImport } from './routes/account'
 import { Route as ApiAccountRouteImport } from './routes/api.account'
 import { Route as ApiArticleRouteImport } from './routes/api.article'
 import { Route as ApiCommentsRouteImport } from './routes/api.comments'
+import { Route as ApiGenerationRouteImport } from './routes/api.generation'
 import { Route as ApiLibraryRouteImport } from './routes/api.library'
 import { Route as ApiMediaRouteImport } from './routes/api.media'
 import { Route as ApiMemoryRouteImport } from './routes/api.memory'
@@ -21,6 +22,10 @@ import { Route as ApiSettingsRouteImport } from './routes/api.settings'
 import { Route as ApiUsageRouteImport } from './routes/api.usage'
 import { Route as ApiAiTurnsRouteImport } from './routes/api.ai.turns'
 import { Route as ApiAuthSplatRouteImport } from './routes/api.auth.$'
+import { Route as ApiGenerationGenerationIdRouteImport } from './routes/api.generation.$generationId'
+import { Route as ApiGenerationClaimRouteImport } from './routes/api.generation.claim'
+import { Route as ApiGenerationIdentityRouteImport } from './routes/api.generation.identity'
+import { Route as ApiGenerationQuotaRouteImport } from './routes/api.generation.quota'
 import { Route as ApiThreadsThreadIdRouteImport } from './routes/api.threads.$threadId'
 import { Route as ApiAiTurnsTurnIdRouteImport } from './routes/api.ai.turns.$turnId'
 import { Route as ApiCommentsCommentIdReactionsRouteImport } from './routes/api.comments.$commentId.reactions'
@@ -50,6 +55,11 @@ const ApiArticleRoute = ApiArticleRouteImport.update({
 const ApiCommentsRoute = ApiCommentsRouteImport.update({
   id: '/api/comments',
   path: '/api/comments',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiGenerationRoute = ApiGenerationRouteImport.update({
+  id: '/api/generation',
+  path: '/api/generation',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiLibraryRoute = ApiLibraryRouteImport.update({
@@ -87,6 +97,27 @@ const ApiAuthSplatRoute = ApiAuthSplatRouteImport.update({
   path: '/api/auth/$',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiGenerationGenerationIdRoute =
+  ApiGenerationGenerationIdRouteImport.update({
+    id: '/$generationId',
+    path: '/$generationId',
+    getParentRoute: () => ApiGenerationRoute,
+  } as any)
+const ApiGenerationClaimRoute = ApiGenerationClaimRouteImport.update({
+  id: '/claim',
+  path: '/claim',
+  getParentRoute: () => ApiGenerationRoute,
+} as any)
+const ApiGenerationIdentityRoute = ApiGenerationIdentityRouteImport.update({
+  id: '/identity',
+  path: '/identity',
+  getParentRoute: () => ApiGenerationRoute,
+} as any)
+const ApiGenerationQuotaRoute = ApiGenerationQuotaRouteImport.update({
+  id: '/quota',
+  path: '/quota',
+  getParentRoute: () => ApiGenerationRoute,
+} as any)
 const ApiThreadsThreadIdRoute = ApiThreadsThreadIdRouteImport.update({
   id: '/api/threads/$threadId',
   path: '/api/threads/$threadId',
@@ -122,6 +153,7 @@ export interface FileRoutesByFullPath {
   '/api/account': typeof ApiAccountRoute
   '/api/article': typeof ApiArticleRoute
   '/api/comments': typeof ApiCommentsRouteWithChildren
+  '/api/generation': typeof ApiGenerationRouteWithChildren
   '/api/library': typeof ApiLibraryRoute
   '/api/media': typeof ApiMediaRoute
   '/api/memory': typeof ApiMemoryRoute
@@ -129,6 +161,10 @@ export interface FileRoutesByFullPath {
   '/api/usage': typeof ApiUsageRoute
   '/api/ai/turns': typeof ApiAiTurnsRouteWithChildren
   '/api/auth/$': typeof ApiAuthSplatRoute
+  '/api/generation/$generationId': typeof ApiGenerationGenerationIdRoute
+  '/api/generation/claim': typeof ApiGenerationClaimRoute
+  '/api/generation/identity': typeof ApiGenerationIdentityRoute
+  '/api/generation/quota': typeof ApiGenerationQuotaRoute
   '/api/threads/$threadId': typeof ApiThreadsThreadIdRouteWithChildren
   '/api/ai/turns/$turnId': typeof ApiAiTurnsTurnIdRoute
   '/api/comments/$commentId/reactions': typeof ApiCommentsCommentIdReactionsRoute
@@ -141,6 +177,7 @@ export interface FileRoutesByTo {
   '/api/account': typeof ApiAccountRoute
   '/api/article': typeof ApiArticleRoute
   '/api/comments': typeof ApiCommentsRouteWithChildren
+  '/api/generation': typeof ApiGenerationRouteWithChildren
   '/api/library': typeof ApiLibraryRoute
   '/api/media': typeof ApiMediaRoute
   '/api/memory': typeof ApiMemoryRoute
@@ -148,6 +185,10 @@ export interface FileRoutesByTo {
   '/api/usage': typeof ApiUsageRoute
   '/api/ai/turns': typeof ApiAiTurnsRouteWithChildren
   '/api/auth/$': typeof ApiAuthSplatRoute
+  '/api/generation/$generationId': typeof ApiGenerationGenerationIdRoute
+  '/api/generation/claim': typeof ApiGenerationClaimRoute
+  '/api/generation/identity': typeof ApiGenerationIdentityRoute
+  '/api/generation/quota': typeof ApiGenerationQuotaRoute
   '/api/threads/$threadId': typeof ApiThreadsThreadIdRouteWithChildren
   '/api/ai/turns/$turnId': typeof ApiAiTurnsTurnIdRoute
   '/api/comments/$commentId/reactions': typeof ApiCommentsCommentIdReactionsRoute
@@ -161,6 +202,7 @@ export interface FileRoutesById {
   '/api/account': typeof ApiAccountRoute
   '/api/article': typeof ApiArticleRoute
   '/api/comments': typeof ApiCommentsRouteWithChildren
+  '/api/generation': typeof ApiGenerationRouteWithChildren
   '/api/library': typeof ApiLibraryRoute
   '/api/media': typeof ApiMediaRoute
   '/api/memory': typeof ApiMemoryRoute
@@ -168,6 +210,10 @@ export interface FileRoutesById {
   '/api/usage': typeof ApiUsageRoute
   '/api/ai/turns': typeof ApiAiTurnsRouteWithChildren
   '/api/auth/$': typeof ApiAuthSplatRoute
+  '/api/generation/$generationId': typeof ApiGenerationGenerationIdRoute
+  '/api/generation/claim': typeof ApiGenerationClaimRoute
+  '/api/generation/identity': typeof ApiGenerationIdentityRoute
+  '/api/generation/quota': typeof ApiGenerationQuotaRoute
   '/api/threads/$threadId': typeof ApiThreadsThreadIdRouteWithChildren
   '/api/ai/turns/$turnId': typeof ApiAiTurnsTurnIdRoute
   '/api/comments/$commentId/reactions': typeof ApiCommentsCommentIdReactionsRoute
@@ -182,6 +228,7 @@ export interface FileRouteTypes {
     | '/api/account'
     | '/api/article'
     | '/api/comments'
+    | '/api/generation'
     | '/api/library'
     | '/api/media'
     | '/api/memory'
@@ -189,6 +236,10 @@ export interface FileRouteTypes {
     | '/api/usage'
     | '/api/ai/turns'
     | '/api/auth/$'
+    | '/api/generation/$generationId'
+    | '/api/generation/claim'
+    | '/api/generation/identity'
+    | '/api/generation/quota'
     | '/api/threads/$threadId'
     | '/api/ai/turns/$turnId'
     | '/api/comments/$commentId/reactions'
@@ -201,6 +252,7 @@ export interface FileRouteTypes {
     | '/api/account'
     | '/api/article'
     | '/api/comments'
+    | '/api/generation'
     | '/api/library'
     | '/api/media'
     | '/api/memory'
@@ -208,6 +260,10 @@ export interface FileRouteTypes {
     | '/api/usage'
     | '/api/ai/turns'
     | '/api/auth/$'
+    | '/api/generation/$generationId'
+    | '/api/generation/claim'
+    | '/api/generation/identity'
+    | '/api/generation/quota'
     | '/api/threads/$threadId'
     | '/api/ai/turns/$turnId'
     | '/api/comments/$commentId/reactions'
@@ -220,6 +276,7 @@ export interface FileRouteTypes {
     | '/api/account'
     | '/api/article'
     | '/api/comments'
+    | '/api/generation'
     | '/api/library'
     | '/api/media'
     | '/api/memory'
@@ -227,6 +284,10 @@ export interface FileRouteTypes {
     | '/api/usage'
     | '/api/ai/turns'
     | '/api/auth/$'
+    | '/api/generation/$generationId'
+    | '/api/generation/claim'
+    | '/api/generation/identity'
+    | '/api/generation/quota'
     | '/api/threads/$threadId'
     | '/api/ai/turns/$turnId'
     | '/api/comments/$commentId/reactions'
@@ -240,6 +301,7 @@ export interface RootRouteChildren {
   ApiAccountRoute: typeof ApiAccountRoute
   ApiArticleRoute: typeof ApiArticleRoute
   ApiCommentsRoute: typeof ApiCommentsRouteWithChildren
+  ApiGenerationRoute: typeof ApiGenerationRouteWithChildren
   ApiLibraryRoute: typeof ApiLibraryRoute
   ApiMediaRoute: typeof ApiMediaRoute
   ApiMemoryRoute: typeof ApiMemoryRoute
@@ -285,6 +347,13 @@ declare module '@tanstack/react-router' {
       path: '/api/comments'
       fullPath: '/api/comments'
       preLoaderRoute: typeof ApiCommentsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/generation': {
+      id: '/api/generation'
+      path: '/api/generation'
+      fullPath: '/api/generation'
+      preLoaderRoute: typeof ApiGenerationRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/library': {
@@ -336,6 +405,34 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiAuthSplatRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/generation/$generationId': {
+      id: '/api/generation/$generationId'
+      path: '/$generationId'
+      fullPath: '/api/generation/$generationId'
+      preLoaderRoute: typeof ApiGenerationGenerationIdRouteImport
+      parentRoute: typeof ApiGenerationRoute
+    }
+    '/api/generation/claim': {
+      id: '/api/generation/claim'
+      path: '/claim'
+      fullPath: '/api/generation/claim'
+      preLoaderRoute: typeof ApiGenerationClaimRouteImport
+      parentRoute: typeof ApiGenerationRoute
+    }
+    '/api/generation/identity': {
+      id: '/api/generation/identity'
+      path: '/identity'
+      fullPath: '/api/generation/identity'
+      preLoaderRoute: typeof ApiGenerationIdentityRouteImport
+      parentRoute: typeof ApiGenerationRoute
+    }
+    '/api/generation/quota': {
+      id: '/api/generation/quota'
+      path: '/quota'
+      fullPath: '/api/generation/quota'
+      preLoaderRoute: typeof ApiGenerationQuotaRouteImport
+      parentRoute: typeof ApiGenerationRoute
+    }
     '/api/threads/$threadId': {
       id: '/api/threads/$threadId'
       path: '/api/threads/$threadId'
@@ -386,6 +483,24 @@ const ApiCommentsRouteWithChildren = ApiCommentsRoute._addFileChildren(
   ApiCommentsRouteChildren,
 )
 
+interface ApiGenerationRouteChildren {
+  ApiGenerationGenerationIdRoute: typeof ApiGenerationGenerationIdRoute
+  ApiGenerationClaimRoute: typeof ApiGenerationClaimRoute
+  ApiGenerationIdentityRoute: typeof ApiGenerationIdentityRoute
+  ApiGenerationQuotaRoute: typeof ApiGenerationQuotaRoute
+}
+
+const ApiGenerationRouteChildren: ApiGenerationRouteChildren = {
+  ApiGenerationGenerationIdRoute: ApiGenerationGenerationIdRoute,
+  ApiGenerationClaimRoute: ApiGenerationClaimRoute,
+  ApiGenerationIdentityRoute: ApiGenerationIdentityRoute,
+  ApiGenerationQuotaRoute: ApiGenerationQuotaRoute,
+}
+
+const ApiGenerationRouteWithChildren = ApiGenerationRoute._addFileChildren(
+  ApiGenerationRouteChildren,
+)
+
 interface ApiAiTurnsRouteChildren {
   ApiAiTurnsTurnIdRoute: typeof ApiAiTurnsTurnIdRoute
 }
@@ -417,6 +532,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiAccountRoute: ApiAccountRoute,
   ApiArticleRoute: ApiArticleRoute,
   ApiCommentsRoute: ApiCommentsRouteWithChildren,
+  ApiGenerationRoute: ApiGenerationRouteWithChildren,
   ApiLibraryRoute: ApiLibraryRoute,
   ApiMediaRoute: ApiMediaRoute,
   ApiMemoryRoute: ApiMemoryRoute,
