@@ -59,7 +59,7 @@ function asset(value, base) {
     return ''
   }
 }
-export function extractArticle(data, url) {
+export function extractArticle(data, url, { truncate = true } = {}) {
   const base = new URL(url),
     metadata = {}
   for (const tag of data.matchAll(/<meta\b[^>]*>/gi)) {
@@ -84,9 +84,9 @@ export function extractArticle(data, url) {
   const paragraphs = [...narrative.matchAll(/<p\b[^>]*>[\s\S]*?<\/p>/gi)]
     .map((m) => plain(m[0]))
     .filter((p) => p.length >= 45)
-  const text = (
+  const fullText =
     paragraphs.length >= 2 ? paragraphs.join('\n\n') : plain(narrative)
-  ).slice(0, 100000)
+  const text = truncate ? fullText.slice(0, 100000) : fullText
   let icon = ''
   for (const tag of data.matchAll(/<link\b[^>]*>/gi)) {
     const a = attrs(tag[0])
@@ -218,13 +218,18 @@ export function extractArticle(data, url) {
   }
   return { text, title, url: base.href, source, media }
 }
-async function publicFetch(url, accept) {
+export async function publicFetch(url, accept, signal) {
   let u = new URL(url)
-  if (!safe(u)) throw Error('Use a public HTTP(S) address.')
+  if (!safe(u))
+    throw Object.assign(Error('Use a public HTTP(S) address.'), {
+      code: 'UNSAFE_SOURCE_URL',
+    })
   for (let i = 0; i < 5; i++) {
     const response = await fetch(u, {
       redirect: 'manual',
-      signal: AbortSignal.timeout(15000),
+      signal: signal
+        ? AbortSignal.any([signal, AbortSignal.timeout(15000)])
+        : AbortSignal.timeout(15000),
       headers: { 'User-Agent': 'ThreadlyReader/1.0', Accept: accept },
     })
     if (
@@ -233,7 +238,10 @@ async function publicFetch(url, accept) {
       response.headers.get('location')
     ) {
       u = new URL(response.headers.get('location'), u)
-      if (!safe(u)) throw Error('This address is not supported.')
+      if (!safe(u))
+        throw Object.assign(Error('This address is not supported.'), {
+          code: 'UNSAFE_SOURCE_URL',
+        })
       continue
     }
     if (!response.ok) throw Error('The source could not be loaded.')
@@ -241,21 +249,55 @@ async function publicFetch(url, accept) {
   }
   throw Error('Too many redirects.')
 }
-async function bounded(response, max) {
+export async function bounded(response, max, signal) {
   const reader = response.body.getReader(),
     parts = []
   let size = 0
-  while (true) {
-    const { done, value } = await reader.read()
-    if (done) break
-    size += value.length
-    if (size > max) {
-      await reader.cancel()
-      throw Error('The source is too large.')
-    }
-    parts.push(value)
+  const abort = () => {
+    reader.cancel().catch(() => {})
   }
-  return new Blob(parts)
+  if (signal?.aborted) abort()
+  else signal?.addEventListener('abort', abort, { once: true })
+  try {
+    while (true) {
+      if (signal?.aborted)
+        throw new DOMException('Operation aborted', 'AbortError')
+      const { done, value } = await reader.read()
+      if (signal?.aborted)
+        throw new DOMException('Operation aborted', 'AbortError')
+      if (done) break
+      size += value.length
+      if (size > max) {
+        await reader.cancel()
+        throw Object.assign(Error('The source is too large.'), {
+          code: 'SOURCE_TOO_LARGE',
+        })
+      }
+      parts.push(value)
+    }
+    return new Blob(parts)
+  } finally {
+    signal?.removeEventListener('abort', abort)
+    reader.releaseLock()
+  }
+}
+/** Callable extraction; the public endpoint retains its existing content threshold.
+ * @param {string} url
+ * @param {{signal?: AbortSignal, truncate?: boolean}} options
+ */
+export async function readArticle(
+  url,
+  { signal = undefined, truncate = true } = {},
+) {
+  const fetched = await publicFetch(url, 'text/html,text/plain', signal)
+  if (
+    !/text\/(html|plain)/i.test(
+      fetched.response.headers.get('content-type') || '',
+    )
+  )
+    throw Error('Use a text article or paste the text directly.')
+  const data = await (await bounded(fetched.response, 2500000, signal)).text()
+  return extractArticle(data, fetched.url, { truncate })
 }
 export default {
   async fetch(request) {
@@ -264,15 +306,7 @@ export default {
     if (path === '/api/article' && request.method === 'POST') {
       try {
         const { url } = await request.json(),
-          fetched = await publicFetch(url, 'text/html,text/plain')
-        if (
-          !/text\/(html|plain)/i.test(
-            fetched.response.headers.get('content-type') || '',
-          )
-        )
-          throw Error('Use a text article or paste the text directly.')
-        const data = await (await bounded(fetched.response, 2500000)).text(),
-          article = extractArticle(data, fetched.url)
+          article = await readArticle(url)
         if (article.text.length < 150)
           throw Error(
             'We could not extract enough text. Paste the article instead.',
