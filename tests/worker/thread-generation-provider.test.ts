@@ -449,3 +449,111 @@ test('deadline cancels a stalled provider response stream', async () => {
   expect(f).toHaveBeenCalledTimes(1)
   expect(cancelled).toHaveBeenCalledOnce()
 })
+
+const monthlyWall =
+  'You have reached your monthly article limit. Create an account to continue reading. Become a member to unlock unlimited articles and support independent journalism. Choose a plan to get full access.'
+const consentWall =
+  'We use cookies and similar technologies to improve your browsing experience and provide personalized advertising. Accept all cookies or manage your preferences to continue to this website.'
+const navigationOnly =
+  'Home | News | World | Politics | Business | Technology | Science | Health | Culture | Sports | Opinion | About us | Contact us | Privacy policy | Terms of service | Help | Careers | Newsletters'
+test.each([monthlyWall, consentWall, navigationOnly])(
+  'access consent and navigation-only local200 recover exactly once: %s',
+  async (wall) => {
+    const f = vi
+      .fn()
+      .mockResolvedValueOnce(html(wall))
+      .mockResolvedValueOnce(
+        Response.json({ title: 'Recovered', content: text }),
+      )
+    vi.stubGlobal('fetch', f)
+    const result = await retrieveGenerationSource(p, input, signal())
+    expect(result.text).toBe(text)
+    expect(f).toHaveBeenCalledTimes(2)
+    expect(f.mock.calls[1][0]).toBe('https://api.deepseek.com/v1/tools/fetch')
+  },
+)
+test.each([monthlyWall, consentWall, navigationOnly])(
+  'Fetch access consent and navigation-only content never becomes model evidence: %s',
+  async (wall) => {
+    const f = vi
+      .fn()
+      .mockResolvedValueOnce(html('short'))
+      .mockResolvedValueOnce(Response.json({ title: 'Blocked', content: wall }))
+    vi.stubGlobal('fetch', f)
+    await expect(
+      (async () => {
+        const evidence = await retrieveGenerationSource(p, input, signal())
+        return writeGenerationThread(
+          p,
+          prepareGenerationThread(input, evidence),
+          signal(),
+        )
+      })(),
+    ).rejects.toMatchObject({ code: 'SOURCE_UNAVAILABLE' })
+    expect(f).toHaveBeenCalledTimes(2)
+    expect(
+      f.mock.calls.some(
+        (call) => call[0] === 'https://api.deepseek.com/chat/completions',
+      ),
+    ).toBe(false)
+  },
+)
+test.each(['local', 'fetch'])(
+  'mixed %s content strips access wall and preserves narrative qualifiers before preparation',
+  async (mode) => {
+    const content =
+      monthlyWall +
+      '\n\n' +
+      text +
+      '\n\nSubscribe to read the full article and get unlimited access to all our reporting.'
+    const f =
+      mode === 'local'
+        ? vi
+            .fn()
+            .mockResolvedValueOnce(
+              html(
+                '<p>' +
+                  monthlyWall +
+                  '</p><p>' +
+                  text +
+                  '</p><p>Subscribe to read the full article and get unlimited access to all our reporting.</p>',
+              ),
+            )
+        : vi
+            .fn()
+            .mockResolvedValueOnce(html('short'))
+            .mockResolvedValueOnce(Response.json({ title: 'Study', content }))
+    vi.stubGlobal('fetch', f)
+    const evidence = await retrieveGenerationSource(p, input, signal())
+    expect(evidence.text).toBe(text)
+    const sent = JSON.parse(
+      JSON.parse(prepareGenerationThread(input, evidence).body).messages[1]
+        .content,
+    )
+    expect(sent.source.text).toBe(text)
+    expect(evidence.source?.name).toBe('Journal')
+    expect(evidence.media[0].url).toBe('https://example.com/chart.png')
+    expect(f).toHaveBeenCalledTimes(mode === 'local' ? 1 : 2)
+  },
+)
+test.each(['local', 'fetch'])(
+  'real %s reporting about subscriptions cookies and access policies stays intact',
+  async (mode) => {
+    const narrative =
+      'Researchers found that subscriptions funded about 12% of the project in 2024, although the sample of 40 participants cannot establish causation. The report explains why people subscribe to journals, how cookies affect measurement, and why a paywall can limit research access.'
+    const f =
+      mode === 'local'
+        ? vi.fn().mockResolvedValueOnce(html(narrative))
+        : vi
+            .fn()
+            .mockResolvedValueOnce(html('short'))
+            .mockResolvedValueOnce(
+              Response.json({ title: 'Research', content: narrative }),
+            )
+    vi.stubGlobal('fetch', f)
+    expect((await retrieveGenerationSource(p, input, signal())).text).toBe(
+      narrative,
+    )
+    expect(f).toHaveBeenCalledTimes(mode === 'local' ? 1 : 2)
+  },
+)

@@ -33,19 +33,37 @@ const unsafe = () =>
 export function checkSourceLength(text: string) {
   if (text.length > 100000) throw tooLarge()
 }
-// Access walls and navigation-only responses are not usable source evidence.
-function adequate(text: string) {
-  const paragraphs = text
-    .split(/\n+/)
-    .map((s) => s.trim())
-    .filter(Boolean)
-  const wall =
-    /\b(sign in|log in|subscribe|subscription required|enable javascript|access denied|verify (?:that )?you are human|accept (?:all )?cookies|page not found|robot check|paywall)\b/i
-  const narrative = paragraphs
-    .filter((s) => !wall.test(s))
-    .join('\n')
-    .trim()
-  return narrative.length >= 150 && /\s/.test(narrative)
+// Match access/consent instructions, not incidental reporting about these topics.
+function articleNarrative(text: string) {
+  const navigationLabel =
+    /^(?:home|news|world|politics|business|technology|science|health|culture|sports|opinion|about(?: us)?|contact(?: us)?|privacy policy|terms(?: of service)?|help|careers|newsletters)$/i
+  const paragraphs = text.split(/\n\s*\n/).filter((paragraph) => {
+    const plain = paragraph.trim().replace(/^#{1,6}\s+/, '')
+    const accessNotice =
+      /^(?:you(?: have|'ve) (?:reached|exceeded) (?:your|the) .{0,60}(?:limit|allowance)|subscription required|enable javascript|access denied|verify (?:that )?you are human|page not found|robot check)\b/i.test(
+        plain,
+      )
+    const accessAction =
+      /^(?:(?:sign|log) in|subscribe|create an? account|register|become a member|choose a plan)\b.{0,120}\b(?:continue|read (?:the |this |more|full)|full access|unlimited (?:access|articles)|unlock|access (?:this|the) (?:article|content))/i.test(
+        plain,
+      )
+    const consent =
+      /^accept (?:all |optional )?cookies\b/i.test(plain) ||
+      (/^we (?:use cookies|value your privacy)\b/i.test(plain) &&
+        /\b(?:accept all cookies|manage your preferences|give (?:your )?consent|continue (?:to|browsing))\b/i.test(
+          plain,
+        ))
+    const menu = plain
+      .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
+      .split(/[|›»•·>\n]+/)
+      .map((item) => item.trim())
+      .filter(Boolean)
+    const navigation =
+      menu.length >= 3 && menu.every((item) => navigationLabel.test(item))
+    return !accessNotice && !accessAction && !consent && !navigation
+  })
+  const narrative = paragraphs.join('\n\n').trim()
+  return narrative.length >= 150 && /\s/.test(narrative) ? narrative : ''
 }
 export async function retrieveGenerationSource(
   p: Platform,
@@ -77,9 +95,10 @@ export async function retrieveGenerationSource(
       readArticle(url.href, { signal: s, truncate: false }),
     )
     checkSourceLength(article.text)
-    if (adequate(article.text))
+    const narrative = articleNarrative(article.text)
+    if (narrative)
       return {
-        text: article.text,
+        text: narrative,
         title: article.title,
         sourceUrl: article.url,
         source: article.source,
@@ -110,14 +129,15 @@ export async function retrieveGenerationSource(
       )
       if (typeof page?.content !== 'string') throw unavailable()
       checkSourceLength(page.content)
-      if (!adequate(page.content)) throw unavailable()
+      const narrative = articleNarrative(page.content)
+      if (!narrative) throw unavailable()
       return {
-        text: page.content,
+        text: narrative,
         title:
           article?.title || (typeof page.title === 'string' ? page.title : ''),
         sourceUrl: article?.url || url.href,
         source: article?.source || extractArticle('', url.href).source,
-        media: [...(article?.media || []), ...textMedia(page.content)]
+        media: [...(article?.media || []), ...textMedia(narrative)]
           .filter(
             (item, index, all) =>
               all.findIndex((other) => other.url === item.url) === index,
