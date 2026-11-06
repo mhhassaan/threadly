@@ -1,3 +1,4 @@
+import { retireGenerationJobs } from '../thread-generation/quota'
 import {
   ApiError,
   type UserContext,
@@ -368,6 +369,7 @@ export async function reserveTurn(
     )
   await initializeAccountSettings(p, u)
   const { worst, ceiling } = budget(p)
+  await retireGenerationJobs(p)
   await assertAdmissionIdentity(p, u, input)
   const alias = await p.db
     .prepare(
@@ -404,7 +406,7 @@ export async function reserveTurn(
   const lease = new Date(now.getTime() + 90_000).toISOString()
   const logical = crypto.randomUUID()
   const attempt = crypto.randomUUID()
-  const eligibility = `(t.opening_blocked=0 OR '${input.kind}'='reply') AND EXISTS (SELECT 1 FROM account_settings s WHERE s.owner_id = ? AND s.ai_enabled = 1 AND s.consent_at IS NOT NULL) AND (SELECT count(*) FROM ai_turns WHERE owner_id = ? AND status IN ('reserved','running')) < 3 AND NOT EXISTS (SELECT 1 FROM ai_turns WHERE owner_id = ? AND thread_id = ? AND status IN ('reserved','running')) AND COALESCE((SELECT sum(reserved_micros) FROM ai_usage WHERE utc_day = ?), 0) + ? <= ?`
+  const eligibility = `(t.opening_blocked=0 OR '${input.kind}'='reply') AND EXISTS (SELECT 1 FROM account_settings s WHERE s.owner_id = ? AND s.ai_enabled = 1 AND s.consent_at IS NOT NULL) AND (SELECT count(*) FROM ai_turns WHERE owner_id = ? AND status IN ('reserved','running')) + (SELECT count(*) FROM generation_jobs WHERE owner_id = t.owner_id AND status IN ('reserved','running')) < 3 AND NOT EXISTS (SELECT 1 FROM ai_turns WHERE owner_id = ? AND thread_id = ? AND status IN ('reserved','running')) AND COALESCE((SELECT sum(reserved_micros) FROM ai_usage WHERE utc_day = ?), 0) + ? <= ?`
   const bindings = [
     u.userId,
     u.userId,

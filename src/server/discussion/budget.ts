@@ -2,14 +2,16 @@ import { ApiError } from '../../lib/account-thread'
 import type { Platform } from '../platform'
 
 export function budget(p: Platform): { worst: number; ceiling: number } {
-  const worst = p.env.aiWorstCaseCostMicros
+  const configured = p.env.aiWorstCaseCostMicros
+  // Two attempts: <=12000 serialized-input bytes and <=1200 output tokens each.
+  const worst = Math.max(configured ?? 0, 10080)
   const ceiling = Math.floor(p.env.aiDailySpendLimitUsd * 1_000_000)
   if (
     !p.env.aiEnabled ||
     !p.env.deepseekApiKey ||
-    !Number.isSafeInteger(worst) ||
-    !worst ||
-    worst < 1 ||
+    !Number.isSafeInteger(configured) ||
+    !configured ||
+    configured < 1 ||
     !Number.isSafeInteger(ceiling) ||
     ceiling < worst
   )

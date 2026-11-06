@@ -322,3 +322,67 @@ export const memorySuppressions = sqliteTable(
   },
   (t) => [unique().on(t.ownerId, t.personaId, t.commentId)],
 )
+
+// Durable generation metadata survives account deletion; payloads are scrubbed by0013.
+export const generationGuests = sqliteTable('generation_guests', {
+  id: text('id').primaryKey(),
+  tokenDigest: text('token_digest').notNull().unique(),
+  createdAt: text('created_at').notNull(),
+})
+export const generationClaims = sqliteTable('generation_claims', {
+  id: text('id').notNull().unique(),
+  guestId: text('guest_id')
+    .primaryKey()
+    .references(() => generationGuests.id),
+  accountKey: text('account_key').notNull().unique(),
+  ownerId: text('owner_id').references(() => user.id, { onDelete: 'set null' }),
+  utcDay: text('utc_day').notNull(),
+})
+export const generationJobs = sqliteTable(
+  'generation_jobs',
+  {
+    id: text('id').primaryKey(),
+    principalKey: text('principal_key').notNull(),
+    guestId: text('guest_id').references(() => generationGuests.id),
+    ownerId: text('owner_id').references(() => user.id, {
+      onDelete: 'set null',
+    }),
+    requestId: text('request_id').notNull(),
+    fingerprint: text('fingerprint').notNull(),
+    sessionId: text('session_id'),
+    credentialGeneration: integer('credential_generation'),
+    settingsEpoch: integer('settings_epoch'),
+    status: text('status').notNull(),
+    phase: text('phase'),
+    inputJson: text('input_json'),
+    resultJson: text('result_json'),
+    recordId: text('record_id').notNull().unique(),
+    errorCode: text('error_code'),
+    leaseUntil: text('lease_until').notNull(),
+    expiresAt: text('expires_at').notNull(),
+    createdAt: text('created_at').notNull(),
+    refined: integer('refined').notNull().default(0),
+  },
+  (t) => [
+    unique().on(t.principalKey, t.requestId),
+    uniqueIndex('generation_one_active')
+      .on(t.principalKey)
+      .where(sql`${t.status} IN ('reserved','running')`),
+    index('generation_expiry').on(t.expiresAt),
+  ],
+)
+export const generationDebits = sqliteTable(
+  'generation_debits',
+  {
+    jobId: text('job_id')
+      .primaryKey()
+      .references(() => generationJobs.id),
+    principalKey: text('principal_key').notNull(),
+    ownerId: text('owner_id').references(() => user.id, {
+      onDelete: 'set null',
+    }),
+    utcDay: text('utc_day').notNull(),
+    state: text('state').notNull(),
+  },
+  (t) => [index('generation_quota').on(t.principalKey, t.utcDay, t.state)],
+)

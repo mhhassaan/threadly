@@ -199,7 +199,7 @@ test('retry_has_new_attempt_and_old_completion_is_fenced', async () => {
 })
 test('budget_survives_thread_deletion', async () => {
   const old = platform.env.aiDailySpendLimitUsd
-  platform.env.aiDailySpendLimitUsd = 0.001
+  platform.env.aiDailySpendLimitUsd = 0.01008
   try {
     await reserve(threadIds[0])
     await env.DB.prepare('DELETE FROM owned_threads WHERE id = ?')
@@ -247,7 +247,7 @@ test('budget_survives_account_deletion_without_identity', async () => {
     )
       .bind(turn.id)
       .first(),
-  ).toEqual({ owner_id: null, reserved_micros: 1000 })
+  ).toEqual({ owner_id: null, reserved_micros: 10080 })
 })
 
 test('failed_retry_requires_new_spend_reservation', async () => {
@@ -261,7 +261,7 @@ test('failed_retry_requires_new_spend_reservation', async () => {
     'failed',
   )
   const old = platform.env.aiDailySpendLimitUsd
-  platform.env.aiDailySpendLimitUsd = 0.001
+  platform.env.aiDailySpendLimitUsd = 0.01008
   try {
     await expect(reserveTurn(platform, user, input)).rejects.toMatchObject({
       status: 429,

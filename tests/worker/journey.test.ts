@@ -359,7 +359,7 @@ test('two authenticated devices retain private source, edits, bounded discussion
     await (await call('/api/usage', 'GET', undefined, otherOwner)).json(),
   ).toMatchObject({ opening: { remaining: 5 }, reply: { remaining: 30 } })
   // Operator exhaustion leaves reading and manual commenting available.
-  platform.env.aiDailySpendLimitUsd = 0.001
+  platform.env.aiDailySpendLimitUsd = 0.01008
   const unavailable = (await (await call('/api/usage')).json()) as Record<
     string,
     unknown

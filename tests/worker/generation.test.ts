@@ -1053,7 +1053,10 @@ test.each(['busy', 'spend', 'settings'] as const)(
       await updateSettings(platform, user, { aiEnabled: false })
     const deniedPlatform =
       denial === 'spend'
-        ? { ...platform, env: { ...platform.env, aiDailySpendLimitUsd: 0.001 } }
+        ? {
+            ...platform,
+            env: { ...platform.env, aiDailySpendLimitUsd: 0.01008 },
+          }
         : platform
     const tables = [
       'ai_requests',

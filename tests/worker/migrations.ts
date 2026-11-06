@@ -1,3 +1,4 @@
+import generationMigration from '../../drizzle/migrations/0013_thread_generation.sql?raw'
 import migration from '../../drizzle/migrations/0001_auth.sql?raw'
 import fenceMigration from '../../drizzle/migrations/0002_auth_fence.sql?raw'
 
@@ -16,4 +17,5 @@ export async function applyAuthMigrations(db: D1Database) {
   await applyMigration(db, migration)
   await applyMigration(db, fenceMigration)
   await applyMigration(db, noticeMigration)
+  await applyMigration(db, generationMigration)
 }
