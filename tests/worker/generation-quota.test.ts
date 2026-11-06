@@ -490,6 +490,31 @@ async function discussion() {
     triggerCommentId: null,
   })
 }
+test('expired discussion leases release generation concurrency without refunding spend', async () => {
+  await discussion()
+  await discussion()
+  await discussion()
+  const before = await row('SELECT sum(reserved_micros) spend FROM ai_usage')
+  expect(before.spend).toBe(3 * 10080)
+  await expect(reserveGeneration(p, account, input())).rejects.toMatchObject({
+    status: 409,
+    code: 'AI_BUSY',
+  })
+  await env.DB.prepare(
+    "UPDATE ai_turns SET status=CASE WHEN rowid % 2=0 THEN 'running' ELSE 'reserved' END,lease_until=strftime('%Y-%m-%dT%H:%M:%fZ','now','-1 second') WHERE owner_id=?",
+  )
+    .bind(user.userId)
+    .run()
+  const result = await reserveGeneration(p, account, input())
+  expect(result.admitted).toBe(true)
+  expect(result.job.status).toBe('reserved')
+  expect(
+    await row('SELECT count(*) n,sum(reserved_micros) spend FROM ai_usage'),
+  ).toEqual({
+    n: 4,
+    spend: before.spend + 300000,
+  })
+})
 test('parallel_discussion_and_generation_budget counts current same ledger', async () => {
   p.env.aiDailySpendLimitUsd = 0.31
   const results = await Promise.allSettled([

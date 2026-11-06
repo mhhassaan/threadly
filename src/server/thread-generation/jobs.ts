@@ -119,7 +119,7 @@ export async function reserveGeneration(
  WHERE ${eligibility}
  AND NOT EXISTS(SELECT 1 FROM generation_jobs WHERE principal_key=? AND status IN ('reserved','running'))
  AND (SELECT count(*) FROM generation_debits WHERE principal_key=? AND state IN ('reserved','used') AND (?='guest' OR utc_day=?))<?
- AND (SELECT count(*) FROM ai_turns WHERE owner_id=? AND status IN ('reserved','running'))+(SELECT count(*) FROM generation_jobs WHERE owner_id=? AND status IN ('reserved','running'))<3
+ AND (SELECT count(*) FROM ai_turns WHERE owner_id=? AND status IN ('reserved','running') AND lease_until>strftime('%Y-%m-%dT%H:%M:%fZ','now'))+(SELECT count(*) FROM generation_jobs WHERE owner_id=? AND status IN ('reserved','running'))<3
  AND COALESCE((SELECT sum(reserved_micros) FROM ai_usage WHERE utc_day=?),0)+?<=? ON CONFLICT DO NOTHING`,
       )
       .bind(
