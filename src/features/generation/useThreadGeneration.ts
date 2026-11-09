@@ -52,6 +52,7 @@ export function createThreadGeneration(options: Options) {
   let state: State = { phase: 'idle', error: '', quota: null }
   let pointer: Pointer | null = null,
     busy = false,
+    admissionPending = false,
     cancelled = false
   let flight: AbortController | null = null
   const delivered = new Set<string>()
@@ -87,6 +88,8 @@ export function createThreadGeneration(options: Options) {
     } catch {}
   }
   async function cleanup(value: Pointer) {
+    // An absent request is not authoritative while its admission can still return.
+    if (admissionPending && !value.jobId) return
     try {
       const job = value.jobId
         ? { id: value.jobId }
@@ -98,8 +101,19 @@ export function createThreadGeneration(options: Options) {
         update({ phase: 'cancelled' })
         await refreshQuota()
       }
-    } catch {
-      /* Retain cancellation marker so a later recovery can only delete. */
+    } catch (error) {
+      if (
+        error instanceof ApiError &&
+        error.status === 404 &&
+        pointer === value &&
+        !admissionPending
+      ) {
+        pointer = null
+        persist()
+        update({ phase: 'cancelled' })
+        await refreshQuota()
+      }
+      // Offline/5xx uncertainty retains the marker so recovery can only delete.
     }
   }
   async function accept(job: GenerationStatus, fresh: boolean) {
@@ -171,15 +185,21 @@ export function createThreadGeneration(options: Options) {
           )
         pointer = { requestId: crypto.randomUUID() }
         persist()
-        const job = await startGeneration(
-          options.owner,
-          {
-            ...input,
-            requestId: pointer.requestId,
-            noticeVersion: processingNoticeVersion,
-          },
-          flight.signal,
-        )
+        let job: GenerationStatus
+        admissionPending = true
+        try {
+          job = await startGeneration(
+            options.owner,
+            {
+              ...input,
+              requestId: pointer.requestId,
+              noticeVersion: processingNoticeVersion,
+            },
+            flight.signal,
+          )
+        } finally {
+          admissionPending = false
+        }
         if (pointer) {
           pointer.jobId = job.id
           persist()

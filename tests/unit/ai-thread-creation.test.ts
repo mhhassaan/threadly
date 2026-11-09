@@ -254,3 +254,166 @@ test('account daily reset is read from server quota without creating an identity
     ),
   ).toBe(true)
 })
+
+test('cancelled admission with authoritative no-job 404 clears its marker and permits a fresh Create', async () => {
+  let admissions = 0
+  const x = setup(async (p, i) => {
+    if (p.endsWith('/identity') || p.endsWith('/quota'))
+      return Response.json(quota)
+    if (p === '/api/generation') {
+      if (++admissions === 1) throw Error('admission did not arrive')
+      return Response.json(reserved)
+    }
+    if (p.includes('?requestId='))
+      return Response.json({ code: 'NOT_FOUND' }, { status: 404 })
+    return Response.json({ ...reserved, status: 'complete', record })
+  })
+  await x.controller.start(input)
+  x.controller.cancel()
+  await x.controller.retryStatus()
+  expect(x.values.size).toBe(0)
+  await x.controller.start(input)
+  expect(admissions).toBe(2)
+  expect(x.complete).toHaveBeenCalledOnce()
+})
+
+test('persisted cancelled no-job operation clears after owned 404 on reload', async () => {
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (p: string) =>
+      p.endsWith('/quota')
+        ? Response.json(quota)
+        : Response.json({ code: 'NOT_FOUND' }, { status: 404 }),
+    ),
+  )
+  const values = new Map([
+    [
+      'threadly-generation:guest',
+      JSON.stringify({ requestId: 'absent-request', cancelled: true }),
+    ],
+  ])
+  const controller = createThreadGeneration({
+    owner: '',
+    key: 'guest',
+    isCurrent: () => true,
+    onComplete: vi.fn(),
+    storage: {
+      getItem: (k) => values.get(k) ?? null,
+      setItem: (k, v) => {
+        values.set(k, v)
+      },
+      removeItem: (k) => {
+        values.delete(k)
+      },
+    },
+  })
+  await controller.retryStatus()
+  expect(values.size).toBe(0)
+  expect(controller.snapshot().phase).toBe('cancelled')
+})
+
+test.each(['offline', 'server'] as const)(
+  'cancelled no-job cleanup keeps marker on %s uncertainty',
+  async (failure) => {
+    const x = setup(async (p) => {
+      if (p.endsWith('/identity') || p.endsWith('/quota'))
+        return Response.json(quota)
+      if (p === '/api/generation' || failure === 'offline')
+        throw Error('offline')
+      return Response.json({ code: 'UNAVAILABLE' }, { status: 503 })
+    })
+    await x.controller.start(input)
+    x.controller.cancel()
+    await x.controller.retryStatus()
+    expect(x.values.size).toBe(1)
+    await x.controller.start(input)
+    expect(x.calls.filter(([p]) => p === '/api/generation')).toHaveLength(1)
+  },
+)
+
+test('cancel before late admission cannot clear its marker on an early 404 or admit a competing Create', async () => {
+  let release!: () => void
+  const wait = new Promise<void>((r) => {
+    release = r
+  })
+  let admitted = false,
+    admissions = 0
+  const x = setup(async (p, i) => {
+    if (p.endsWith('/identity') || p.endsWith('/quota'))
+      return Response.json(quota)
+    if (p === '/api/generation') {
+      admissions++
+      await wait
+      admitted = true
+      return Response.json(reserved)
+    }
+    if (p.includes('?requestId='))
+      return admitted
+        ? Response.json(reserved)
+        : Response.json({ code: 'NOT_FOUND' }, { status: 404 })
+    return Response.json({
+      ...reserved,
+      status: i.method === 'DELETE' ? 'cancelled' : 'complete',
+      record,
+    })
+  })
+  const first = x.controller.start(input)
+  await vi.waitFor(() => expect(admissions).toBe(1))
+  x.controller.cancel()
+  await Promise.resolve()
+  await x.controller.start(input)
+  expect(x.values.size).toBe(1)
+  expect(admissions).toBe(1)
+  release()
+  await first
+  expect(
+    x.calls.filter(
+      ([p, i]) => p.endsWith('/job-server') && i.method === 'POST',
+    ),
+  ).toHaveLength(0)
+  expect(
+    x.calls.some(
+      ([p, i]) => p.endsWith('/job-server') && i.method === 'DELETE',
+    ),
+  ).toBe(true)
+  expect(x.values.size).toBe(0)
+  await x.controller.start(input)
+  expect(admissions).toBe(2)
+  expect(x.complete).toHaveBeenCalledOnce()
+})
+
+test('cancelled in-flight admission clears only after it settles absent, then permits fresh creation', async () => {
+  let rejectAdmission!: (error: Error) => void
+  const pending = new Promise<Response>((_, reject) => {
+    rejectAdmission = reject
+  })
+  let admissions = 0
+  const x = setup(async (p, i) => {
+    if (p.endsWith('/identity') || p.endsWith('/quota'))
+      return Response.json(quota)
+    if (p === '/api/generation') {
+      if (++admissions === 1) return pending
+      return Response.json(reserved)
+    }
+    if (p.includes('?requestId='))
+      return Response.json({ code: 'NOT_FOUND' }, { status: 404 })
+    return Response.json({
+      ...reserved,
+      status: i.method === 'DELETE' ? 'cancelled' : 'complete',
+      record,
+    })
+  })
+  const first = x.controller.start(input)
+  await vi.waitFor(() => expect(admissions).toBe(1))
+  x.controller.cancel()
+  await x.controller.start(input)
+  expect(x.values.size).toBe(1)
+  expect(x.calls.some(([p]) => p.includes('?requestId='))).toBe(false)
+  rejectAdmission(Error('did not arrive'))
+  await first
+  expect(x.values.size).toBe(0)
+  expect(x.controller.snapshot().phase).toBe('cancelled')
+  await x.controller.start(input)
+  expect(admissions).toBe(2)
+  expect(x.complete).toHaveBeenCalledOnce()
+})

@@ -348,3 +348,90 @@ test('after an account switch, transient auth checks keep the new owner source',
   flushOwner('bob', false)
   expect(node('sourceText').props.value).toBe(source)
 })
+
+test.each(['owner', 'session', 'pending', 'unavailable', 'expired'] as const)(
+  'deferred file text cannot publish after %s changes',
+  async (change) => {
+    setup()
+    runtime.account.user = { id: 'alice', verified: true }
+    runtime.account.sessionKey = 'alice-session'
+    node('sourceText').props.onChange({
+      target: { value: 'Alice initial source '.repeat(40) },
+    })
+    let release!: (text: string) => void
+    const text = new Promise<string>((r) => {
+      release = r
+    })
+    node('fileInput').props.onChange({
+      target: {
+        files: [{ name: 'alice-private.txt', size: 100, text: () => text }],
+        value: 'alice-private.txt',
+      },
+    })
+    if (change === 'owner') {
+      runtime.account.user = { id: 'bob', verified: true }
+      runtime.account.sessionKey = 'bob-session'
+    } else if (change === 'session')
+      runtime.account.sessionKey = 'replacement-session'
+    else runtime.account[change] = true
+    const firstValue = node('sourceText').props.value
+    if (change !== 'session') expect(firstValue).toBe('')
+    if (change === 'owner') {
+      runtime.effects
+        .find(
+          ({ deps }) =>
+            deps.length === 2 && deps[0] === 'bob' && deps[1] === false,
+        )!
+        .fn()
+    }
+    if (
+      change === 'pending' ||
+      change === 'unavailable' ||
+      change === 'expired'
+    )
+      runtime.account[change] = false
+    const retained = 'Current owner new input '.repeat(40)
+    node('sourceText').props.onChange({ target: { value: retained } })
+    release('Alice late private file '.repeat(40))
+    await text
+    await Promise.resolve()
+    expect(node('sourceText').props.value).toBe(retained)
+    expect(node('fileName').props.children).not.toBe('alice-private.txt')
+  },
+)
+
+test('latest same-owner file load wins and a normal same-owner read remains usable', async () => {
+  setup()
+  runtime.account.user = { id: 'alice', verified: true }
+  runtime.account.sessionKey = 'alice-session'
+  let first!: (value: string) => void, second!: (value: string) => void
+  const firstText = new Promise<string>((r) => {
+      first = r
+    }),
+    secondText = new Promise<string>((r) => {
+      second = r
+    })
+  node('fileInput').props.onChange({
+    target: {
+      files: [{ name: 'old.txt', size: 100, text: () => firstText }],
+      value: '',
+    },
+  })
+  node('fileInput').props.onChange({
+    target: {
+      files: [{ name: 'new.txt', size: 100, text: () => secondText }],
+      value: '',
+    },
+  })
+  const source = 'Latest file source '.repeat(40)
+  second(source)
+  await secondText
+  await Promise.resolve()
+  expect(node('sourceText').props.value).toBe(source)
+  expect(node('fileName').props.children).toBe('new.txt')
+  first('Stale file source '.repeat(40))
+  await firstText
+  await Promise.resolve()
+  expect(node('sourceText').props.value).toBe(source)
+  expect(node('fileName').props.children).toBe('new.txt')
+})

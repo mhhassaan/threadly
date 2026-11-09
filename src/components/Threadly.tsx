@@ -133,6 +133,18 @@ function ThreadlyView({
   if (!inputOwner.current && owner) inputOwner.current = owner
   const privateInputHidden =
     !!inputOwner.current && (inputOwner.current !== owner || identityBlocked)
+  const fileIdentity = owner + ':' + account.sessionKey + ':' + identityBlocked
+  const fileRead = useRef({ identity: fileIdentity, version: 0 })
+  if (fileRead.current.identity !== fileIdentity) {
+    fileRead.current.identity = fileIdentity
+    fileRead.current.version++
+  }
+  useEffect(
+    () => () => {
+      fileRead.current.version++
+    },
+    [],
+  )
   const [selectionMode, setSelectionMode] = useState(false)
   const [readerContainer, setReaderContainer] = useState<HTMLDivElement | null>(
     null,
@@ -698,7 +710,12 @@ function ThreadlyView({
     setError('')
   }
   async function loadFile(file?: File) {
-    if (!file) return
+    if (!file || identityBlocked) return
+    const version = ++fileRead.current.version
+    const isCurrentRead = () =>
+      fileRead.current.version === version &&
+      fileRead.current.identity === fileIdentity &&
+      currentOwner.current === owner
     setError('')
     if (file.size > 1_000_000) {
       setError('Choose a file smaller than 1 MB.')
@@ -710,6 +727,7 @@ function ThreadlyView({
     }
     try {
       const data = await file.text()
+      if (!isCurrentRead()) return
       if (data.length > 100000)
         throw Error('Use a file containing up to 100,000 characters.')
       setText(data)
@@ -717,7 +735,8 @@ function ThreadlyView({
       switchMode('file')
       notify('File loaded. Your text is ready to turn into a thread.')
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Could not read file.')
+      if (isCurrentRead())
+        setError(e instanceof Error ? e.message : 'Could not read file.')
     }
   }
   function updateRecord(next: ThreadRecord, ensureSaved = false) {
