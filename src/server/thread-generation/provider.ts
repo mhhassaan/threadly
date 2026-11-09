@@ -98,7 +98,7 @@ export async function writeGenerationThread(
     throw failure()
   for (let attempt = 1; attempt <= 2; attempt++) {
     if (signal.aborted) throw failure()
-    await beforeExternal?.()
+    if (beforeExternal) await beforeExternal()
     if (signal.aborted) throw failure()
     let retryable = false
     try {

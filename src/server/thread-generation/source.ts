@@ -112,7 +112,7 @@ export async function retrieveGenerationSource(
     if (signal.aborted) throw unavailable()
   }
   if (!p.env.deepseekApiKey || signal.aborted) throw unavailable()
-  await beforeExternal?.()
+  if (beforeExternal) await beforeExternal()
   if (signal.aborted) throw unavailable()
   try {
     return await withDeadline(signal, 10000, async (s) => {
