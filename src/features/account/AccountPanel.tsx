@@ -4,6 +4,8 @@ import { UsageStatus } from './UsageStatus'
 import { useState } from 'react'
 import { AuthForms } from './AuthForms'
 import { useAccountStatus } from './auth-client'
+import { useQuery } from '@tanstack/react-query'
+import { getGenerationQuota } from '../generation/client'
 
 export function AccountPanel({
   token,
@@ -14,8 +16,31 @@ export function AccountPanel({
   verified?: boolean
   linkError?: boolean
 }) {
-  const { user, pending, unavailable, expired, retry, signOut } =
-    useAccountStatus()
+  const {
+    user,
+    pending,
+    unavailable,
+    expired,
+    retry,
+    signOut,
+    generationClaimPending,
+    generationClaimError,
+    retryGenerationClaim,
+  } = useAccountStatus()
+  const allowance = useQuery({
+    queryKey: ['account', user?.id, 'generation-quota'],
+    queryFn: ({ signal }) => getGenerationQuota(user!.id, signal),
+    enabled:
+      !!user?.verified &&
+      !pending &&
+      !unavailable &&
+      !expired &&
+      !generationClaimPending &&
+      !generationClaimError,
+    retry: false,
+    staleTime: 0,
+    refetchOnWindowFocus: 'always',
+  })
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   async function logout() {
@@ -68,8 +93,31 @@ export function AccountPanel({
             <p className="account-hint">
               {user.verified
                 ? 'Your private saved threads sync across devices. Import device copies from Saved threads when you choose. Private discussions stay with their threads.'
-                : 'Verify your email to use your private account library. You can keep creating and reading guest threads now.'}
+                : 'Verify your email to create threads and use your private account library. Your existing device threads stay readable.'}
             </p>
+            {user.verified && (
+              <div className="account-notice" role="status">
+                {generationClaimPending ? (
+                  'Carrying over completed guest usage…'
+                ) : generationClaimError ? (
+                  <>
+                    {generationClaimError}
+                    <button
+                      className="secondary"
+                      onClick={retryGenerationClaim}
+                    >
+                      Retry allowance check
+                    </button>
+                  </>
+                ) : allowance.isFetching ? (
+                  'Checking your thread allowance…'
+                ) : allowance.data ? (
+                  `${allowance.data.remaining} of 10 threads remaining today. Resets at midnight UTC. Completed guest usage carries over once on first verified sign-in.`
+                ) : (
+                  'Thread allowance unavailable. Check your connection and try again.'
+                )}
+              </div>
+            )}
             {user.verified && (
               <UsageStatus key={'usage-' + user.id} owner={user.id} />
             )}

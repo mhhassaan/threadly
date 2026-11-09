@@ -14,6 +14,8 @@ import { useQueryClient } from '@tanstack/react-query'
 import { createAccountBoundary, resolveSessionUser } from './auth-state'
 import { createAccountTransitions } from './account-transitions'
 import type { AccountUser } from './auth-state'
+import { claimGuestUsage } from '../generation/client'
+import type { GenerationQuota } from '../../lib/thread-generation'
 export { clearAccountCache, draftKey } from './auth-state'
 
 // Relative same-origin requests only. No server configuration or credentials.
@@ -28,6 +30,11 @@ type Account = {
   pending: boolean
   signOut: () => Promise<void>
   deleted: (owner: string) => void
+  sessionKey: string
+  generationClaimPending: boolean
+  generationClaimError: string
+  retryGenerationClaim: () => void
+  generationQuota: GenerationQuota | null
 }
 type AccountStatus = Account & {
   unavailable: boolean
@@ -48,11 +55,54 @@ export function AccountProvider({ children }: { children: ReactNode }) {
   const confirmed = useRef<AccountUser | null>(null)
   const [rejectedSession, setRejectedSession] = useState<string | null>(null)
   const sessionId = session.data?.session.id ?? null
+  const claimFlight = useRef<{
+    key: string
+    promise: Promise<GenerationQuota>
+  } | null>(null)
+  const [claim, setClaim] = useState<{
+    key: string
+    quota: GenerationQuota | null
+    error: string
+  } | null>(null)
+  const [claimRetry, setClaimRetry] = useState(0)
   const user =
     rejectedSession && rejectedSession === sessionId
       ? null
       : resolveSessionUser(session.data?.user, session.error, confirmed.current)
   const id = user?.id ?? null
+  const claimKey =
+    user?.verified &&
+    id === appliedOwner &&
+    !session.isPending &&
+    !session.error &&
+    !expired
+      ? id + ':' + sessionId
+      : ''
+  useEffect(() => {
+    if (!claimKey || !id) return
+    let active = true
+    if (claimFlight.current?.key !== claimKey)
+      claimFlight.current = { key: claimKey, promise: claimGuestUsage(id) }
+    void claimFlight.current.promise.then(
+      (quota) => {
+        if (active) setClaim({ key: claimKey, quota, error: '' })
+      },
+      (error) => {
+        if (active)
+          setClaim({
+            key: claimKey,
+            quota: null,
+            error:
+              error instanceof Error
+                ? error.message
+                : 'Could not claim guest usage. Retry when connected.',
+          })
+      },
+    )
+    return () => {
+      active = false
+    }
+  }, [claimKey, claimRetry])
   useEffect(() => {
     let storage: Storage | undefined
     try {
@@ -103,6 +153,17 @@ export function AccountProvider({ children }: { children: ReactNode }) {
     transitions.current?.apply(id, session.data?.session.id ?? null)
   }, [id, session.isPending, session.error, session.data])
   const value: AccountStatus = {
+    sessionKey: sessionId ?? 'guest',
+    generationClaimPending:
+      !!user?.verified && (!claimKey || claim?.key !== claimKey),
+    generationClaimError:
+      claimKey && claim?.key === claimKey ? claim.error : '',
+    generationQuota: claimKey && claim?.key === claimKey ? claim.quota : null,
+    retryGenerationClaim: () => {
+      claimFlight.current = null
+      setClaim(null)
+      setClaimRetry((n) => n + 1)
+    },
     user: id === appliedOwner ? user : null,
     pending: session.isPending || (!!id && id !== appliedOwner),
     unavailable: !!session.error,

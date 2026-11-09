@@ -7,6 +7,12 @@ import { AccountPanel } from '../../src/features/account/AccountPanel'
 const account = vi.hoisted(() => ({
   user: { id: 'alice', name: 'Alice', verified: true } as any,
   pending: false,
+  generationClaimPending: false,
+  generationClaimError: '',
+}))
+vi.mock('@tanstack/react-query', () => ({
+  useQuery: ({ enabled }: { enabled: boolean }) =>
+    enabled ? { data: { remaining: 8 } } : {},
 }))
 vi.mock('../../src/features/account/auth-client', () => ({
   useAccountStatus: () => account,
@@ -27,6 +33,17 @@ vi.mock('../../src/features/account/library', () => ({
 test('verified_account_owns_conversation_management', () => {
   expect(renderToStaticMarkup(createElement(AccountPanel))).toContain(
     'Conversation management',
+  )
+})
+
+test('account allowance stays hidden until guest carryover is claimed', () => {
+  account.generationClaimPending = true
+  const pending = renderToStaticMarkup(createElement(AccountPanel))
+  expect(pending).toContain('Carrying over completed guest usage')
+  expect(pending).not.toContain('8 of 10')
+  account.generationClaimPending = false
+  expect(renderToStaticMarkup(createElement(AccountPanel))).toContain(
+    '8 of 10 threads remaining today',
   )
 })
 

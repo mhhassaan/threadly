@@ -1,27 +1,18 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { summarize } from '../lib/summary'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { useThreadGeneration } from '../features/generation/useThreadGeneration'
 import { createThreadImage } from '../lib/export'
 import { example } from '../lib/example'
 import {
-  assignMedia,
   cacheKey,
   libraryKey,
   loadLibrary,
   mediaUrl,
   normalizeRecord,
   remoteUrl,
-  textMedia,
   validRecord,
 } from '../lib/thread'
-import type {
-  Depth,
-  Media,
-  Mode,
-  Reaction,
-  Source,
-  ThreadRecord,
-} from '../lib/thread'
+import type { Depth, Media, Mode, Reaction, ThreadRecord } from '../lib/thread'
 import '../lib/appearance'
 import { Icon, Post } from './Post'
 import { AppearancePanel } from './AppearancePanel'
@@ -29,7 +20,7 @@ import { Dialog } from './Dialog'
 import { ExportOptions } from './ExportOptions'
 import { AccountPanel } from '../features/account/AccountPanel'
 import { Replies } from './Replies'
-import { useAccount } from '../features/account/auth-client'
+import { useAccountStatus } from '../features/account/auth-client'
 import { CloudLibrary } from '../features/account/CloudLibrary'
 import { useCloudReader } from '../features/account/useCloudReader'
 import {
@@ -76,14 +67,20 @@ type ThreadlyProps = {
   comment?: string
 }
 export function Threadly(props: ThreadlyProps) {
-  const account = useAccount()
+  const account = useAccountStatus()
+  const privateReaderHidden =
+    !!props.threadId &&
+    (!account.user?.verified ||
+      account.pending ||
+      account.unavailable ||
+      account.expired)
   useEffect(() => {
-    if (props.threadId && !account.user?.verified) {
+    if (privateReaderHidden) {
       document.documentElement.classList.remove('reader-page')
       document.title = 'Your private thread — Threadly'
     }
-  }, [props.threadId, account.user?.id, account.user?.verified])
-  if (props.threadId && !account.user?.verified)
+  }, [privateReaderHidden])
+  if (privateReaderHidden)
     return (
       <main className="dashboard">
         <section className="panel">
@@ -120,11 +117,22 @@ function ThreadlyView({
   post,
   comment,
 }: ThreadlyProps) {
-  const account = useAccount()
+  const account = useAccountStatus()
   const owner = account.user?.verified ? account.user.id : ''
   const cloud = useCloudReader(owner, threadId)
   const currentOwner = useRef(owner)
-  currentOwner.current = owner
+  const identityBlocked =
+    account.pending ||
+    account.unavailable ||
+    account.expired ||
+    (!!account.user && !account.user.verified) ||
+    account.generationClaimPending ||
+    !!account.generationClaimError
+  currentOwner.current = identityBlocked ? '\0' : owner
+  const inputOwner = useRef(owner)
+  if (!inputOwner.current && owner) inputOwner.current = owner
+  const privateInputHidden =
+    !!inputOwner.current && (inputOwner.current !== owner || identityBlocked)
   const [selectionMode, setSelectionMode] = useState(false)
   const [readerContainer, setReaderContainer] = useState<HTMLDivElement | null>(
     null,
@@ -142,7 +150,6 @@ function ThreadlyView({
     [url, setUrl] = useState(''),
     [fileName, setFileName] = useState(''),
     [error, setError] = useState(''),
-    [busy, setBusy] = useState(false),
     [deviceRecord, setRecord] = useState<ThreadRecord | null>(null),
     [selected, setSelected] = useState<Set<number>>(new Set()),
     [notice, setNotice] = useState<{
@@ -289,7 +296,11 @@ function ThreadlyView({
     latest = useRef<ThreadRecord | null>(null),
     recordRef = useRef<ThreadRecord | null>(null),
     exportUrl = useRef<string | null>(null),
-    busyRef = useRef(false)
+    creationWindow = useRef<{
+      owner: string
+      entry: ReaderWindow | null
+      accountWindow: Window | null
+    } | null>(null)
   const textRef = useRef<HTMLTextAreaElement>(null),
     urlRef = useRef<HTMLInputElement>(null),
     fileRef = useRef<HTMLInputElement>(null)
@@ -300,12 +311,26 @@ function ThreadlyView({
   })
   const saved = library.data || []
   useEffect(() => {
+    if (inputOwner.current && inputOwner.current !== owner) {
+      setText('')
+      setUrl('')
+      setFileName('')
+      inputOwner.current = owner
+    }
     if (latestOwner.current && latestOwner.current !== owner) {
+      latestOwner.current = ''
       latest.current = null
       latestCloud.current = null
       setNotice(null)
+      setText('')
+      setUrl('')
+      setFileName('')
+      setExportResult(null)
+      setModal(null)
+      if (exportUrl.current) URL.revokeObjectURL(exportUrl.current)
+      exportUrl.current = null
     }
-    if (owner && !threadId) {
+    if (owner && !identityBlocked && !threadId) {
       try {
         const pending = JSON.parse(
           sessionStorage.getItem(draftKey(owner, 'generated')) || 'null',
@@ -318,7 +343,7 @@ function ThreadlyView({
         }
       } catch {}
     }
-  }, [owner])
+  }, [owner, identityBlocked])
   const notify = useCallback((message: string) => {
     setToast(message)
     if (timer.current) clearTimeout(timer.current)
@@ -475,34 +500,6 @@ function ThreadlyView({
       },
     )
   }, [ready, record, isReader, motion])
-  const article = useMutation({
-    mutationFn: async (articleUrl: string) => {
-      const response = await fetch('/api/article', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url: articleUrl }),
-      })
-      const data: unknown = await response.json()
-      if (!response.ok) {
-        const message =
-          data &&
-          typeof data === 'object' &&
-          'error' in data &&
-          typeof data.error === 'string' &&
-          data.error
-            ? data.error
-            : 'Could not read this article.'
-        throw Error(message)
-      }
-      return data as {
-        text: string
-        title: string
-        url: string
-        source: Source
-        media: Media[]
-      }
-    },
-  })
   function launch(data: ThreadRecord | null = null) {
     const token = crypto.randomUUID(),
       destination = new URL('/', location.href)
@@ -554,12 +551,6 @@ function ThreadlyView({
     }
     latestCloud.current = result.snapshot!.thread.id
     try {
-      sessionStorage.setItem(
-        openingIntentKey(owner, latestCloud.current),
-        'new',
-      )
-    } catch {}
-    try {
       sessionStorage.removeItem(draftKey(owner, 'generated'))
     } catch {}
     void queryClient.invalidateQueries({ queryKey: accountLibraryKey(owner) })
@@ -575,8 +566,101 @@ function ThreadlyView({
     }
     setError('')
   }
+  async function completeGeneration(next: ThreadRecord, fresh: boolean) {
+    const generationOwner = owner
+    if (currentOwner.current !== generationOwner) return
+    const windows = creationWindow.current
+    const entry = windows?.owner === generationOwner ? windows.entry : null
+    const accountWindow =
+      windows?.owner === generationOwner ? windows.accountWindow : null
+    latest.current = next
+    latestOwner.current = generationOwner
+    latestCloud.current = null
+    if (generationOwner) {
+      try {
+        sessionStorage.setItem(
+          draftKey(generationOwner, 'generated'),
+          JSON.stringify(next),
+        )
+      } catch {}
+      const result = await saveCloudDraft(generationOwner, next, null)
+      if (currentOwner.current !== generationOwner) {
+        accountWindow?.close()
+        return
+      }
+      if (result.error) {
+        accountWindow?.close()
+        setNotice({ blocked: true, pointer: method.current === 'pointer' })
+        setError(result.error.message)
+        return
+      }
+      latestCloud.current = result.snapshot!.thread.id
+      // Only a fresh, explicitly executed creation may request an opening.
+      // Recovery/replay/import can recover the record without starting discussion.
+      if (fresh)
+        try {
+          sessionStorage.setItem(
+            openingIntentKey(generationOwner, latestCloud.current),
+            'new',
+          )
+        } catch {}
+      try {
+        sessionStorage.removeItem(draftKey(generationOwner, 'generated'))
+      } catch {}
+      void queryClient.invalidateQueries({
+        queryKey: accountLibraryKey(generationOwner),
+      })
+      if (accountWindow && !accountWindow.closed) {
+        if (fresh)
+          try {
+            moveOpeningIntent(
+              sessionStorage,
+              accountWindow.sessionStorage,
+              openingIntentKey(generationOwner, latestCloud.current),
+            )
+          } catch {}
+        accountWindow.location.replace('/?thread=' + latestCloud.current)
+      }
+      setNotice({
+        blocked: !accountWindow || accountWindow.closed,
+        pointer: method.current === 'pointer',
+      })
+    } else {
+      if (entry) {
+        entry.data = next
+        if (entry.win && !entry.win.closed)
+          entry.win.postMessage(
+            { type: 'threadly:result', token: entry.token, record: next },
+            location.origin,
+          )
+      }
+      setNotice({
+        blocked: !entry?.win || entry.win.closed,
+        pointer: entry?.pointer ?? false,
+      })
+    }
+    notify('Your thread is ready')
+  }
+  const generation = useThreadGeneration({
+    owner,
+    sessionKey: account.sessionKey,
+    pending: account.pending || account.generationClaimPending,
+    unavailable: identityBlocked,
+    enabled: !isReader,
+    onComplete: completeGeneration,
+  })
+  const busy = generation.busy
+  function closeCreationWindow() {
+    creationWindow.current?.entry?.win?.close()
+    creationWindow.current?.accountWindow?.close()
+    creationWindow.current = null
+  }
+  useEffect(() => {
+    if (identityBlocked) closeCreationWindow()
+    return () => closeCreationWindow()
+  }, [owner, account.sessionKey, identityBlocked])
   async function generate() {
-    if (busyRef.current) return
+    if (busy || identityBlocked || privateInputHidden) return
     setError('')
     if (mode === 'url' && !remoteUrl(url)) {
       setError('Add a valid article link, starting with https://.')
@@ -594,136 +678,20 @@ function ThreadlyView({
       )?.focus()
       return
     }
-    busyRef.current = true
-    setBusy(true)
     setNotice(null)
-    const generationOwner = owner
-    const entry = generationOwner ? null : launch()
-    const accountWindow = generationOwner
-      ? window.open('about:blank', '_blank')
-      : null
-    try {
-      let sourceText = text.trim(),
-        title = sourceText.split('\n')[0].slice(0, 100),
-        sourceUrl = '',
-        source: Source | null = null,
-        media = textMedia(sourceText)
-      const attributed = sourceText.match(/^Source:\s*(https?:\/\/\S+)/im)
-      if (attributed && remoteUrl(attributed[1])) {
-        const u = new URL(attributed[1])
-        sourceUrl = u.href
-        source = {
-          name: u.hostname.replace(/^www\./, ''),
-          handle: u.hostname.replace(/^www\./, ''),
-          url: u.origin,
-          icon: new URL('/favicon.ico', u).href,
-        }
-      }
-      if (mode === 'url') {
-        const data = await article.mutateAsync(url)
-        sourceText = data.text
-        title = data.title
-        sourceUrl = data.url
-        source = data.source
-        media = data.media || []
-      }
-      if (sourceText.split(/\s+/).filter(Boolean).length < 30)
-        throw Error(
-          'We could not find enough article text. Paste the source text instead.',
-        )
-      const posts = summarize(
-        sourceText.replace(/!\[[^\]]*\]\([^)]+\)/g, ''),
-        depth,
-        length,
-      )
-      const next: ThreadRecord = {
-        id: crypto.randomUUID(),
-        title: title || 'Your reading thread',
-        posts,
-        sourceUrl,
-        source,
-        media: assignMedia(media, posts, sourceText),
-        interactions: {},
-        sourceText,
-      }
-      latest.current = next
-      latestOwner.current = generationOwner
-      latestCloud.current = null
-      if (generationOwner) {
-        if (currentOwner.current !== generationOwner) {
-          latest.current = null
-          accountWindow?.close()
-          return
-        }
-        try {
-          sessionStorage.setItem(
-            draftKey(generationOwner, 'generated'),
-            JSON.stringify(next),
-          )
-        } catch {}
-        const result = await saveCloudDraft(generationOwner, next, null)
-        if (currentOwner.current !== generationOwner) {
-          latest.current = null
-          accountWindow?.close()
-          return
-        }
-        if (result.error) {
-          accountWindow?.close()
-          setNotice({ blocked: true, pointer: method.current === 'pointer' })
-          throw result.error
-        }
-        latestCloud.current = result.snapshot!.thread.id
-        try {
-          sessionStorage.setItem(
-            openingIntentKey(owner, latestCloud.current),
-            'new',
-          )
-        } catch {}
-        try {
-          sessionStorage.removeItem(draftKey(generationOwner, 'generated'))
-        } catch {}
-        void queryClient.invalidateQueries({
-          queryKey: accountLibraryKey(generationOwner),
-        })
-        if (accountWindow) {
-          try {
-            moveOpeningIntent(
-              sessionStorage,
-              accountWindow.sessionStorage,
-              openingIntentKey(generationOwner, latestCloud.current!),
-            )
-          } catch {}
-          accountWindow.location.replace('/?thread=' + latestCloud.current)
-        }
-        setNotice({
-          blocked: !accountWindow,
-          pointer: method.current === 'pointer',
-        })
-      } else if (entry) {
-        entry.data = next
-        if (entry.win && !entry.win.closed)
-          entry.win.postMessage(
-            { type: 'threadly:result', token: entry.token, record: next },
-            location.origin,
-          )
-        setNotice({
-          blocked: !entry.win || entry.win.closed,
-          pointer: entry.pointer,
-        })
-      }
-      notify('Your thread is ready')
-    } catch (e) {
-      entry?.win?.close()
-      accountWindow?.close()
-      setError(
-        e instanceof Error
-          ? e.message
-          : 'Something went wrong. Please try again.',
-      )
-    } finally {
-      busyRef.current = false
-      setBusy(false)
+    creationWindow.current = {
+      owner,
+      entry: owner ? null : launch(),
+      accountWindow: owner ? window.open('about:blank', '_blank') : null,
     }
+    const complete = await generation.start({
+      mode,
+      source: mode === 'url' ? url : text,
+      depth,
+      length: length === 'auto' ? 'auto' : Number(length),
+    })
+    if (!complete) closeCreationWindow()
+    else creationWindow.current = null
   }
   function switchMode(next: Mode) {
     setMode(next)
@@ -746,7 +714,7 @@ function ThreadlyView({
         throw Error('Use a file containing up to 100,000 characters.')
       setText(data)
       setFileName(file.name)
-      switchMode('text')
+      switchMode('file')
       notify('File loaded. Your text is ready to turn into a thread.')
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Could not read file.')
@@ -1051,7 +1019,7 @@ function ThreadlyView({
                     maxLength={100000}
                     placeholder="Paste the article, essay, or idea you’ve been meaning to read…"
                     aria-describedby="sourceHint wordCount"
-                    value={text}
+                    value={privateInputHidden ? '' : text}
                     onChange={(e) => setText(e.target.value)}
                     onKeyDown={(e) => {
                       if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
@@ -1104,7 +1072,7 @@ function ThreadlyView({
                     autoCorrect="off"
                     enterKeyHint="go"
                     aria-describedby="urlHint"
-                    value={url}
+                    value={privateInputHidden ? '' : url}
                     onChange={(e) => setUrl(e.target.value)}
                     onKeyDown={(e) => {
                       if (e.key === 'Enter') {
@@ -1171,7 +1139,7 @@ function ThreadlyView({
                   />
                 </div>
                 <p id="fileName" className="hint" role="status">
-                  {fileName ||
+                  {(!privateInputHidden && fileName) ||
                     'Your text opens in the editor, ready to review.'}
                 </p>
               </div>
@@ -1217,51 +1185,140 @@ function ThreadlyView({
                 </select>
               </div>
             </fieldset>
+            <p className="generation-notice" id="generationNotice">
+              Creating a thread sends your source to DeepSeek for AI writing.
+              Source names identify attribution; the summary is AI written.
+            </p>
+            <div
+              className="generation-quota"
+              id="generationQuota"
+              role="status"
+              aria-live="polite"
+            >
+              {identityBlocked ? (
+                account.generationClaimError ||
+                (account.generationClaimPending
+                  ? 'Carrying over your guest usage…'
+                  : account.pending
+                    ? 'Checking your account…'
+                    : 'Check your account to continue.')
+              ) : generation.quota ? (
+                <>
+                  {generation.quota.remaining} of {generation.quota.limit}{' '}
+                  {generation.quota.kind === 'guest'
+                    ? 'guest threads remaining · 2 total'
+                    : 'threads remaining today · resets at midnight UTC'}
+                </>
+              ) : (
+                'Guests: 2 threads total. Verified accounts: 10 per UTC day.'
+              )}
+              {!identityBlocked &&
+                generation.quota?.remaining === 0 &&
+                generation.quota.kind === 'guest' && (
+                  <button
+                    className="text-button"
+                    onClick={() => setModal({ kind: 'account' })}
+                  >
+                    Sign in to continue
+                  </button>
+                )}
+              {account.generationClaimError && (
+                <button
+                  className="text-button"
+                  onClick={account.retryGenerationClaim}
+                >
+                  Retry allowance check
+                </button>
+              )}
+              {(account.expired ||
+                account.unavailable ||
+                (!!account.user && !account.user.verified)) && (
+                <button
+                  className="text-button"
+                  onClick={() => setModal({ kind: 'account' })}
+                >
+                  Check account
+                </button>
+              )}
+            </div>
+            {generation.state.error && (
+              <p className="generation-error" role="alert">
+                {generation.state.error}
+              </p>
+            )}
+            {busy && (
+              <div className="generation-actions">
+                <button
+                  className="secondary"
+                  onClick={() => {
+                    generation.cancel()
+                    closeCreationWindow()
+                  }}
+                >
+                  Cancel creation
+                </button>
+                {generation.state.phase === 'recovering' && (
+                  <button
+                    className="secondary"
+                    onClick={() => void generation.retryStatus()}
+                  >
+                    Check thread status
+                  </button>
+                )}
+              </div>
+            )}
             <div id="error" role="alert" hidden={!error}>
               {error}
             </div>
             <button
               id="generate"
               className="generate"
-              disabled={busy}
+              disabled={
+                busy || identityBlocked || generation.quota?.remaining === 0
+              }
               aria-busy={busy}
+              aria-describedby="generationNotice generationQuota"
               onClick={() => void generate()}
             >
               <span>
                 {busy
-                  ? mode === 'url'
-                    ? 'Reading your article…'
-                    : 'Creating your thread…'
+                  ? generation.state.phase === 'preparing'
+                    ? 'Preparing your source…'
+                    : generation.state.phase === 'recovering'
+                      ? 'Recovering your thread…'
+                      : 'Writing your thread…'
                   : 'Create my thread'}
               </span>
             </button>
-            {notice && (
-              <div
-                id="resultNotice"
-                className="result-notice"
-                data-motion-input={notice.pointer ? 'pointer' : 'keyboard'}
-              >
-                <div>
-                  <strong>Your thread is ready</strong>
-                  <p id="resultHint">
-                    {notice.blocked
-                      ? 'Your browser blocked the new window. Select Open thread to try again.'
-                      : 'Your source stays here for your next read.'}
-                  </p>
-                </div>
-                <button
-                  id="reopenReader"
-                  className="secondary"
-                  onClick={() => {
-                    void openGenerated()
-                  }}
+            {notice &&
+              !identityBlocked &&
+              (!latestOwner.current || latestOwner.current === owner) && (
+                <div
+                  id="resultNotice"
+                  className="result-notice"
+                  data-motion-input={notice.pointer ? 'pointer' : 'keyboard'}
                 >
-                  {latestOwner.current && !latestCloud.current
-                    ? 'Retry account save'
-                    : 'Open thread ↗'}
-                </button>
-              </div>
-            )}
+                  <div>
+                    <strong>Your thread is ready</strong>
+                    <p id="resultHint">
+                      {notice.blocked
+                        ? 'Your browser blocked the new window. Select Open thread to try again.'
+                        : 'Your source stays here for your next read.'}
+                    </p>
+                  </div>
+                  <button
+                    id="reopenReader"
+                    className="secondary"
+                    onClick={() => {
+                      void openGenerated()
+                    }}
+                  >
+                    {latestOwner.current && !latestCloud.current
+                      ? 'Retry account save'
+                      : 'Open thread ↗'}
+                  </button>
+                </div>
+              )}
             <div className="try">
               <span>Something to get you started?</span>
               <button
@@ -1639,123 +1696,131 @@ function ThreadlyView({
       >
         {toast}
       </div>
-      {ready && modal && (
-        <Dialog title={modalTitle} onClose={() => setModal(null)}>
-          {modal.kind === 'account' ? (
-            <AccountPanel />
-          ) : modal.kind === 'appearance' ? (
-            <AppearancePanel onClose={() => setModal(null)} />
-          ) : modal.kind === 'library' ? (
-            <>
-              {owner && (
-                <CloudLibrary key={owner} owner={owner} local={saved} />
-              )}
-              {saved.length ? (
-                saved.map((item) => (
-                  <div className="saved-item" key={item.id}>
-                    <button
-                      className="saved-open"
-                      onClick={() => openRecord(item)}
-                    >
-                      {item.title}
-                      <small>
-                        {item.posts.length} tweets ·{' '}
-                        {item.date || 'Saved on this device'}
-                      </small>
-                    </button>
-                    <button
-                      className="delete-saved"
-                      aria-label={'Delete saved thread ' + item.title}
-                      onClick={() =>
-                        storeLibrary(
-                          loadLibrary().filter((s) => s.id !== item.id),
-                        )
-                      }
-                    >
-                      ×
-                    </button>
-                  </div>
-                ))
-              ) : (
+      {ready &&
+        modal &&
+        (!privateInputHidden || !['export', 'result'].includes(modal.kind)) && (
+          <Dialog title={modalTitle} onClose={() => setModal(null)}>
+            {modal.kind === 'account' ? (
+              <AccountPanel />
+            ) : modal.kind === 'appearance' ? (
+              <AppearancePanel onClose={() => setModal(null)} />
+            ) : modal.kind === 'library' ? (
+              <>
+                {owner && (
+                  <CloudLibrary key={owner} owner={owner} local={saved} />
+                )}
+                {saved.length ? (
+                  saved.map((item) => (
+                    <div className="saved-item" key={item.id}>
+                      <button
+                        className="saved-open"
+                        onClick={() => openRecord(item)}
+                      >
+                        {item.title}
+                        <small>
+                          {item.posts.length} tweets ·{' '}
+                          {item.date || 'Saved on this device'}
+                        </small>
+                      </button>
+                      <button
+                        className="delete-saved"
+                        aria-label={'Delete saved thread ' + item.title}
+                        onClick={() =>
+                          storeLibrary(
+                            loadLibrary().filter((s) => s.id !== item.id),
+                          )
+                        }
+                      >
+                        ×
+                      </button>
+                    </div>
+                  ))
+                ) : (
+                  <p>
+                    Your reading list starts here. Save a thread from its
+                    reading window to find it here later. Threads stay on this
+                    device.
+                  </p>
+                )}
+              </>
+            ) : modal.kind === 'about' ? (
+              <>
                 <p>
-                  Your reading list starts here. Save a thread from its reading
-                  window to find it here later. Threads stay on this device.
+                  Add a source: paste text, link a public article, or upload a
+                  text or Markdown file.
                 </p>
-              )}
-            </>
-          ) : modal.kind === 'about' ? (
-            <>
-              <p>
-                Add a source: paste text, link a public article, or upload a
-                text or Markdown file.
-              </p>
-              <p>
-                Choose your depth. Your editable thread opens in a separate
-                reading window.
-              </p>
-              <p>
-                Threadly selects connected passages and keeps complete sentences
-                in source order. It does not use generative AI. A summary may
-                leave out context; return to the source when the details matter.
-              </p>
-              <p>
-                Likes, reposts, bookmarks and replies are local and are not
-                published to Twitter/X. Article media appears when available;
-                PNG exports include available static images.
-              </p>
-              <p>
-                Guest saved threads stay on this device. New threads created in
-                a verified account are saved privately across devices. Importing
-                existing device threads is your choice. Article links and images
-                are fetched by the server.
-              </p>
-            </>
-          ) : modal.kind === 'media' ? (
-            <>
-              <img
-                className="lightbox-image"
-                src={mediaUrl(modal.item.url)}
-                alt={modal.item.alt || 'Article image'}
-              />
-              {modal.item.caption && <p>{modal.item.caption}</p>}
-              <a
-                href={remoteUrl(modal.item.url)}
-                target="_blank"
-                rel="noopener noreferrer"
-              >
-                Open original image ↗
-              </a>
-            </>
-          ) : modal.kind === 'export' && record ? (
-            <ExportOptions
-              record={record}
-              selected={selected}
-              onSelect={toggleSelection}
-              onExport={(indices) => void exportImages(indices)}
-              busy={exportBusy}
-              onAppearance={() => setModal({ kind: 'appearance' })}
-            />
-          ) : null}
-          {exportResult && ['export', 'result'].includes(modal.kind) && (
-            <div className="export-result">
-              <strong>Your image is ready</strong>
-              {exportResult.png && (
+                <p>
+                  Choose your depth. Your editable thread opens in a separate
+                  reading window.
+                </p>
+                <p>
+                  DeepSeek writes every new thread from your source. Article
+                  links are extracted first; DeepSeek Fetch may retrieve the
+                  article when extraction fails. AI summaries may miss context
+                  or make mistakes; return to the source when details matter.
+                </p>
+                <p>
+                  Source names and avatars preserve attribution, not authorship
+                  of the AI summary. Fictional AI discussion replies are labeled
+                  AI. Likes, reposts, bookmarks and replies are local and are
+                  not published to Twitter/X. Article media appears when
+                  available; PNG exports include available static images.
+                </p>
+                <p>
+                  Guest saved threads stay on this device. New threads created
+                  in a verified account are saved privately across devices.
+                  Importing existing device threads is your choice. Article
+                  links and images are fetched by the server.
+                </p>
+              </>
+            ) : modal.kind === 'media' ? (
+              <>
                 <img
-                  src={exportResult.url}
-                  alt="Preview of the exported tweets"
+                  className="lightbox-image"
+                  src={mediaUrl(modal.item.url)}
+                  alt={modal.item.alt || 'Article image'}
                 />
-              )}
-              <a
-                className="secondary"
-                href={exportResult.url}
-                download={exportResult.filename}
-              >
-                {exportResult.png ? 'Download PNG' : 'Download PNG pages (ZIP)'}
-              </a>
-            </div>
-          )}
-        </Dialog>
-      )}
+                {modal.item.caption && <p>{modal.item.caption}</p>}
+                <a
+                  href={remoteUrl(modal.item.url)}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  Open original image ↗
+                </a>
+              </>
+            ) : modal.kind === 'export' && record ? (
+              <ExportOptions
+                record={record}
+                selected={selected}
+                onSelect={toggleSelection}
+                onExport={(indices) => void exportImages(indices)}
+                busy={exportBusy}
+                onAppearance={() => setModal({ kind: 'appearance' })}
+              />
+            ) : null}
+            {exportResult && ['export', 'result'].includes(modal.kind) && (
+              <div className="export-result">
+                <strong>Your image is ready</strong>
+                {exportResult.png && (
+                  <img
+                    src={exportResult.url}
+                    alt="Preview of the exported tweets"
+                  />
+                )}
+                <a
+                  className="secondary"
+                  href={exportResult.url}
+                  download={exportResult.filename}
+                >
+                  {exportResult.png
+                    ? 'Download PNG'
+                    : 'Download PNG pages (ZIP)'}
+                </a>
+              </div>
+            )}
+          </Dialog>
+        )}
     </>
   )
 }

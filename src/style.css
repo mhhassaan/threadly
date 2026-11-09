@@ -3841,3 +3841,40 @@ html[data-motion-input='keyboard'] .source-panes > [role='tabpanel'] {
 @media (prefers-reduced-motion: reduce) { .reader-page button, .reader-page summary { transition: none; } }
 
 .reader-page .is-focused > .post:before { display: none; }
+
+.generation-notice {
+  margin: 16px 0 8px;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.55;
+}
+.generation-quota {
+  min-height: 42px;
+  margin-bottom: 12px;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.5;
+  font-variant-numeric: tabular-nums;
+}
+.generation-quota button {
+  display: block;
+  min-height: 36px;
+  padding: 4px 0;
+  color: var(--accent);
+  text-align: left;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  touch-action: manipulation;
+}
+.generation-error {
+  margin: 0 0 12px;
+  color: var(--text);
+  font-size: 14px;
+  line-height: 1.5;
+}
+.generation-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 12px;
+}
