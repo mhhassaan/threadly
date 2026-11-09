@@ -20,6 +20,12 @@ The script permits at most 8 requests and 100000 reserved cost micros ($0.10). O
 
 The output is validated public synthetic exchanges and token counts for human review. Public `ThreadSnapshot` fixtures reuse production `buildContext`, `getCast` and `validateExchange`, including the actual system instructions, schema, recurring personalities, source passages and historical memory context. An existing pluginless Vite TypeScript runner loads these helpers without app plugins, environment files, D1 or a server listener, then closes. Evaluation retains its separate capped HTTP transport without retries. Local Workers tests additionally exercise persistence and admission. This does not qualify real private-article retrieval or production behavior. Do not add private content to fixtures to make it more realistic.
 
+## Thread-creation qualification
+
+`tests/worker/ai-generation-journey.test.ts` exercises actual signup, captured verification links and normal signed-in sessions against disposable D1 migrated through `0013_thread_generation`. It calls the production identity/admission/execution/quota/claim/library/discussion handlers, source pipeline and provider validators. Only outbound provider, article and email HTTP is faked; unrecognized targets fail closed. It covers one/two guest successes carrying to nine/eight account credits, duplicate claims, signout, ten-credit exhaustion and UTC reset, guest lifetime limits, invalid output, cancellation and completion-versus-claim ordering, private payload scrubbing, no deletion refunds, legacy import deduplication and the shared discussion/generation money and concurrency limits.
+
+The new thread writer is separate from this page's eight-case discussion evaluation utility: its output cap is 16384 tokens, source/request bounds are larger, and it can use article Fetch recovery. Do not use the discussion evaluator's reservation or 1200-token cap to qualify creation. A live thread-creation evaluation requires separately approved public fixtures, request count and conservative spend cap. It must review completeness, attribution, retained names/numbers/qualifiers, connected complete thoughts, natural ending and lack of padding or invented claims. Fake-provider integration does not certify actual model fluency, grounding, Fetch availability or billing.
+
 ## Human rubric
 
 Score each criterion 0 (failed), 1 (mixed), or 2 (clear pass), retain brief public-fixture evidence and inspect every returned comment:
