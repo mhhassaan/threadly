@@ -154,7 +154,8 @@ export function handleGenerationJob(request: Request, p: Platform, id: string) {
 }
 async function executeGeneration(request: Request, p: Platform, id: string) {
   return respond(async () => {
-    let active: { principal: Principal; id: string } | undefined
+    let execution:
+      Promise<{ principal: Principal; id: string } | undefined> | undefined
     try {
       return await withDeadline(request.signal, 120000, async (signal) => {
         method(request, ['POST'])
@@ -168,8 +169,12 @@ async function executeGeneration(request: Request, p: Platform, id: string) {
         const existing = await readGeneration(p, principal, id)
         if (existing.status !== 'reserved')
           return json(existing, existing.status === 'running' ? 202 : 200)
-        active = { principal, id }
-        if (!(await beginGenerationAttempt(p, principal, id))) {
+        if (signal.aborted)
+          throw new DOMException('Operation aborted', 'AbortError')
+        execution = beginGenerationAttempt(p, principal, id).then((won) =>
+          won ? { principal, id } : undefined,
+        )
+        if (!(await execution)) {
           const current = await readGeneration(p, principal, id)
           return json(
             current,
@@ -178,6 +183,8 @@ async function executeGeneration(request: Request, p: Platform, id: string) {
               : 200,
           )
         }
+        if (signal.aborted)
+          throw new DOMException('Operation aborted', 'AbortError')
         const input = await readGenerationInput(p, principal, id)
         const controller = new AbortController()
         const abort = () => controller.abort()
@@ -244,6 +251,8 @@ async function executeGeneration(request: Request, p: Platform, id: string) {
         }
       })
     } catch (error) {
+      // Resolve an in-flight atomic begin before cleanup: only its winner owns this execution.
+      const active = await execution?.catch(() => undefined)
       if (active) {
         // Housekeeping scrubs revoked/claimed jobs even when the captured identity can no longer read them.
         await retireGenerationJobs(p, active.principal)

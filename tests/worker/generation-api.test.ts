@@ -834,3 +834,193 @@ test('execute uses admitted normalized input and refines reservation before the 
     'Literal evidence.\nSecond line.',
   )
 })
+
+// Delay real D1 query results at the request boundary, preserving every SQL side effect.
+function gateDatabase(
+  platform: Platform,
+  after: (sql: string, operation: 'first' | 'run', value: any) => Promise<any>,
+): Platform {
+  const unwrapped = new WeakMap<object, D1PreparedStatement>()
+  function statement(
+    actual: D1PreparedStatement,
+    sql: string,
+  ): D1PreparedStatement {
+    const wrapped = new Proxy(actual, {
+      get(target, name) {
+        if (name === 'bind')
+          return (...args: any[]) => statement(target.bind(...args), sql)
+        const member = Reflect.get(target, name, target)
+        if (name === 'first' || name === 'run')
+          return async (...args: any[]) =>
+            after(sql, name, await member.apply(target, args))
+        return typeof member === 'function' ? member.bind(target) : member
+      },
+    })
+    unwrapped.set(wrapped, actual)
+    return wrapped
+  }
+  return {
+    ...platform,
+    db: new Proxy(platform.db, {
+      get(target, name) {
+        if (name === 'prepare')
+          return (sql: string) => statement(target.prepare(sql), sql)
+        if (name === 'batch')
+          return (statements: D1PreparedStatement[]) =>
+            target.batch(statements.map((s) => unwrapped.get(s) ?? s))
+        const member = Reflect.get(target, name, target)
+        return typeof member === 'function' ? member.bind(target) : member
+      },
+    }),
+  }
+}
+function latch() {
+  let release!: () => void
+  const ready = new Promise<void>((r) => (release = r))
+  return { ready, release }
+}
+test.each(['abort', 'read error'])(
+  'losing execution %s after atomic begin=false cannot terminate the winner',
+  async (failure) => {
+    const cookie = await guest(),
+      value = input(),
+      admission = await handleGeneration(
+        req('/api/generation', 'POST', value, cookie),
+        p,
+      ),
+      job = (await admission.json()) as GenerationStatus
+    const initialRead = latch(),
+      returnInitialRead = latch(),
+      loserRead = latch(),
+      returnLoserRead = latch(),
+      providerStarted = latch(),
+      returnProvider = latch()
+    let reads = 0,
+      lostBegin = false
+    const losingPlatform = gateDatabase(p, async (sql, operation, result) => {
+      if (
+        operation === 'run' &&
+        sql.startsWith("UPDATE generation_jobs SET status='running'")
+      )
+        lostBegin = result.meta.changes === 0
+      if (
+        operation === 'first' &&
+        sql === 'SELECT * FROM generation_jobs WHERE id=? AND principal_key=?'
+      ) {
+        reads++
+        if (reads === 1) {
+          expect(result.status).toBe('reserved')
+          initialRead.release()
+          await returnInitialRead.ready
+        }
+        if (reads === 2) {
+          expect(lostBegin).toBe(true)
+          expect(result.status).toBe('running')
+          loserRead.release()
+          await returnLoserRead.ready
+          if (failure === 'read error')
+            throw Error('Synthetic interrupted duplicate status read')
+        }
+      }
+      return result
+    })
+    provider = async () => {
+      providerStarted.release()
+      await returnProvider.ready
+      return result()
+    }
+    const controller = new AbortController(),
+      losing = handleGenerationJob(
+        req('/api/generation/' + job.id, 'POST', {}, cookie, controller.signal),
+        losingPlatform,
+        job.id,
+      )
+    let winning: Promise<Response> | undefined
+    try {
+      await initialRead.ready
+      winning = handleGenerationJob(
+        req('/api/generation/' + job.id, 'POST', {}, cookie),
+        p,
+        job.id,
+      )
+      await providerStarted.ready
+      returnInitialRead.release()
+      await loserRead.ready
+      if (failure === 'abort') controller.abort()
+      else returnLoserRead.release()
+      const loserResponse = await losing
+      expect(
+        await row('SELECT status FROM generation_jobs WHERE id=?', job.id),
+      ).toEqual({ status: 'running' })
+      returnLoserRead.release()
+      returnProvider.release()
+      const completed = (await (await winning).json()) as GenerationStatus
+      expect(completed).toMatchObject({ id: job.id, status: 'complete' })
+      expect(completed.record?.posts).toHaveLength(2)
+      expect(loserResponse.status).toBe(failure === 'abort' ? 499 : 500)
+      expect(calls).toEqual(['https://api.deepseek.com/chat/completions'])
+      expect(
+        await row('SELECT state FROM generation_debits WHERE job_id=?', job.id),
+      ).toEqual({ state: 'used' })
+    } finally {
+      controller.abort()
+      returnInitialRead.release()
+      returnLoserRead.release()
+      returnProvider.release()
+      await Promise.allSettled([losing, ...(winning ? [winning] : [])])
+    }
+  },
+)
+test('abort while successful atomic begin is still resolving cleans up only its winning reservation', async () => {
+  const cookie = await guest(),
+    admission = await handleGeneration(
+      req('/api/generation', 'POST', input(), cookie),
+      p,
+    ),
+    job = (await admission.json()) as GenerationStatus
+  const began = latch(),
+    returnBegin = latch(),
+    controller = new AbortController()
+  const delayedPlatform = gateDatabase(p, async (sql, operation, result) => {
+    if (
+      operation === 'run' &&
+      sql.startsWith("UPDATE generation_jobs SET status='running'")
+    ) {
+      expect(result.meta.changes).toBe(1)
+      began.release()
+      await returnBegin.ready
+    }
+    return result
+  })
+  const response = handleGenerationJob(
+    req('/api/generation/' + job.id, 'POST', {}, cookie, controller.signal),
+    delayedPlatform,
+    job.id,
+  )
+  try {
+    await began.ready
+    controller.abort()
+    returnBegin.release()
+    expect(await (await response).json()).toMatchObject({
+      id: job.id,
+      status: 'cancelled',
+    })
+    expect(
+      await row(
+        'SELECT status,input_json,result_json FROM generation_jobs WHERE id=?',
+        job.id,
+      ),
+    ).toEqual({ status: 'cancelled', input_json: null, result_json: null })
+    expect(
+      await row('SELECT state FROM generation_debits WHERE job_id=?', job.id),
+    ).toEqual({ state: 'released' })
+    expect(
+      await row('SELECT count(*) n FROM ai_usage WHERE turn_id=?', job.id),
+    ).toEqual({ n: 1 })
+    expect(calls).toEqual([])
+  } finally {
+    returnBegin.release()
+    controller.abort()
+    await Promise.allSettled([response])
+  }
+})
