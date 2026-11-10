@@ -5,6 +5,7 @@ import { createThreadImage } from '../lib/export'
 import { example } from '../lib/example'
 import {
   cacheKey,
+  formatThreadDate,
   libraryKey,
   loadLibrary,
   mediaUrl,
@@ -1738,7 +1739,8 @@ function ThreadlyView({
                         {item.title}
                         <small>
                           {item.posts.length} tweets ·{' '}
-                          {item.date || 'Saved on this device'}
+                          {formatThreadDate(item.date) ||
+                            'Saved on this device'}
                         </small>
                       </button>
                       <button

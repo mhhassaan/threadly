@@ -75,11 +75,25 @@ export async function retrieveGenerationSource(
   checkSourceLength(input.source)
   if (input.mode !== 'url') {
     if (!input.source.trim()) throw unavailable()
+    let sourceUrl = '',
+      source: Source | null = null
+    const attributed = input.source.match(/^Source:\s*(https?:\/\/\S+)/im)
+    if (attributed) {
+      try {
+        const url = new URL(attributed[1])
+        if (safe(url) && url.href.length <= 8192) {
+          sourceUrl = url.href
+          source = extractArticle('', sourceUrl).source
+        }
+      } catch {
+        // Invalid attribution remains part of the original source text.
+      }
+    }
     return {
       text: input.source,
       title: '',
-      sourceUrl: '',
-      source: null,
+      sourceUrl,
+      source,
       media: textMedia(input.source),
     }
   }

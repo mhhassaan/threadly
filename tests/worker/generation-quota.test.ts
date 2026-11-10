@@ -673,3 +673,22 @@ test('addressed expired result stays private even with a full housekeeping batch
     ),
   ).toEqual({ input_json: null, result_json: null })
 })
+
+test.each([60, 100, 101])(
+  'publication title boundary counts %s Unicode code points',
+  async (count) => {
+    const g = await guest()
+    const { job } = await reserveGeneration(p, g.principal, input())
+    await beginGenerationAttempt(p, g.principal, job.id)
+    const value = { ...record, title: '😀'.repeat(count) }
+    if (count > 100) {
+      await expect(
+        completeGeneration(p, g.principal, job.id, value),
+      ).rejects.toMatchObject({ code: 'INVALID_GENERATION' })
+    } else {
+      const completed = await completeGeneration(p, g.principal, job.id, value)
+      expect(completed.status).toBe('complete')
+      expect(completed.record?.title).toBe(value.title)
+    }
+  },
+)

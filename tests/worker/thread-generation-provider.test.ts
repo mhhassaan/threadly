@@ -557,3 +557,45 @@ test.each(['local', 'fetch'])(
     expect(f).toHaveBeenCalledTimes(mode === 'local' ? 1 : 2)
   },
 )
+
+test.each(['text', 'file'] as const)(
+  'pasted %s attribution is metadata only and retains original text',
+  async (mode) => {
+    const f = vi.fn()
+    vi.stubGlobal('fetch', f)
+    const original = 'Source: https://www.example.org/article\n\n' + text
+    const result = await retrieveGenerationSource(
+      p,
+      { ...input, mode, source: original },
+      signal(),
+    )
+    expect(result.text).toBe(original)
+    expect(result.sourceUrl).toBe('https://www.example.org/article')
+    expect(result.source).toMatchObject({
+      name: 'example.org',
+      handle: 'example.org',
+      icon: 'https://www.example.org/favicon.ico',
+    })
+    expect(f).not.toHaveBeenCalled()
+  },
+)
+test.each([
+  'javascript:alert(1)',
+  'https://user:pass@example.org/a',
+  'http://127.0.0.1/private',
+  'https://example.internal/a',
+  'not-a-url',
+])('unsafe attribution stays plain text: %s', async (url) => {
+  const f = vi.fn()
+  vi.stubGlobal('fetch', f)
+  const original = 'Source: ' + url + '\n' + text
+  const result = await retrieveGenerationSource(
+    p,
+    { ...input, mode: 'text', source: original },
+    signal(),
+  )
+  expect(result.text).toBe(original)
+  expect(result.sourceUrl).toBe('')
+  expect(result.source).toBeNull()
+  expect(f).not.toHaveBeenCalled()
+})

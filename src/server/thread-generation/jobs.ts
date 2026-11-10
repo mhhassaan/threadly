@@ -279,7 +279,7 @@ export async function completeGeneration(
   if (
     !validRecord(record) ||
     !record.title.trim() ||
-    record.title.length > 100 ||
+    Array.from(record.title).length > 100 ||
     record.posts.some((x) => !x.trim() || Array.from(x).length > 1200)
   )
     throw new ApiError(422, 'INVALID_GENERATION', 'Generated thread is invalid')

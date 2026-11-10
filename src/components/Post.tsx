@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { mediaUrl, remoteUrl } from '../lib/thread'
+import { formatThreadDate, mediaUrl, remoteUrl } from '../lib/thread'
 import type { Media, ThreadRecord, Reaction } from '../lib/thread'
 import { useReplyComposer } from '../features/account/reply-composer'
 import { Icon, PostFrame, PostMenu, PostActions } from './PostChrome'
@@ -206,7 +206,17 @@ export function Post({
       )}
       {index === 0 && (record.date || remoteUrl(record.sourceUrl)) && (
         <div className="tweet-meta">
-          {record.date && <span>{record.date}</span>}
+          {record.date && (
+            <time
+              dateTime={
+                /^\d{4}-\d{2}-\d{2}T/.test(record.date)
+                  ? record.date
+                  : undefined
+              }
+            >
+              {formatThreadDate(record.date)}
+            </time>
+          )}
           {remoteUrl(record.sourceUrl) && (
             <a
               href={remoteUrl(record.sourceUrl)}

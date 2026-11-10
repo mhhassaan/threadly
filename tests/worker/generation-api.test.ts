@@ -283,40 +283,51 @@ test('missing generation notice and unknown client identity cannot reach provide
   expect(calls).toEqual([])
   expect(await row('SELECT count(*) n FROM ai_usage')).toEqual({ n: 0 })
 })
-test('successful text result preserves evidence media and stable record identity across duplicate POST and GET', async () => {
-  const cookie = await guest(),
-    value = input(
-      'Evidence ![Chart](https://example.org/chart.png) shows a complete fact.',
+test.each(['text', 'file'] as const)(
+  'successful %s result preserves attribution evidence media and stable record identity across duplicate POST and GET',
+  async (mode) => {
+    const cookie = await guest(),
+      value = input(
+        'Source: https://www.example.org/article\n\nEvidence ![Chart](https://example.org/chart.png) shows a complete fact.',
+      )
+    value.mode = mode
+    const r = await generate(cookie, value)
+    expect(r.status).toBe(200)
+    const job = (await r.json()) as GenerationStatus
+    expect(job.status).toBe('complete')
+    expect(job.record?.id).not.toBe(job.id)
+    expect(job.record?.posts).toEqual([
+      'One supported complete thought.',
+      'A second supported thought.',
+    ])
+    expect(job.record?.sourceUrl).toBe('https://www.example.org/article')
+    expect(job.record?.source).toEqual({
+      name: 'example.org',
+      handle: 'example.org',
+      url: 'https://www.example.org',
+      icon: 'https://www.example.org/favicon.ico',
+    })
+    expect(job.record?.sourceText).toBe(value.source)
+    expect(job.record?.media[0]).toMatchObject({
+      url: 'https://example.org/chart.png',
+      postIndex: 1,
+    })
+    const again = await generate(cookie, value)
+    expect(again.status).toBe(200)
+    expect(await again.json()).toEqual(job)
+    const read = await handleGenerationJob(
+      req('/api/generation/' + job.id, 'GET', undefined, cookie),
+      p,
+      job.id,
     )
-  const r = await generate(cookie, value)
-  expect(r.status).toBe(200)
-  const job = (await r.json()) as GenerationStatus
-  expect(job.status).toBe('complete')
-  expect(job.record?.id).not.toBe(job.id)
-  expect(job.record?.posts).toEqual([
-    'One supported complete thought.',
-    'A second supported thought.',
-  ])
-  expect(job.record?.sourceText).toBe(value.source)
-  expect(job.record?.media[0]).toMatchObject({
-    url: 'https://example.org/chart.png',
-    postIndex: 1,
-  })
-  const again = await generate(cookie, value)
-  expect(again.status).toBe(200)
-  expect(await again.json()).toEqual(job)
-  const read = await handleGenerationJob(
-    req('/api/generation/' + job.id, 'GET', undefined, cookie),
-    p,
-    job.id,
-  )
-  expect(await read.json()).toEqual(job)
-  expect(calls).toEqual(['https://api.deepseek.com/chat/completions'])
-  expect(await row('SELECT state FROM generation_debits')).toEqual({
-    state: 'used',
-  })
-  expect(await row('SELECT count(*) n FROM owned_threads')).toEqual({ n: 0 })
-})
+    expect(await read.json()).toEqual(job)
+    expect(calls).toEqual(['https://api.deepseek.com/chat/completions'])
+    expect(await row('SELECT state FROM generation_debits')).toEqual({
+      state: 'used',
+    })
+    expect(await row('SELECT count(*) n FROM owned_threads')).toEqual({ n: 0 })
+  },
+)
 test('first guest cookie permits pending GET duplicate and cancellation before POST returns', async () => {
   const cookie = await guest(),
     value = input(),
