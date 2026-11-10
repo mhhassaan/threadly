@@ -1,4 +1,4 @@
-import { afterEach, expect, test, vi } from 'vitest'
+import { afterEach, beforeEach, expect, test, vi } from 'vitest'
 import { retrieveGenerationSource } from '../../src/server/thread-generation/source'
 import {
   prepareGenerationThread,
@@ -42,7 +42,13 @@ const good = (posts = [text], finish = 'stop') =>
     ],
     usage: { prompt_tokens: 100, completion_tokens: 40 },
   })
+let providerWarning: ReturnType<typeof vi.spyOn>
+beforeEach(() => {
+  providerWarning = vi.spyOn(console, 'warn').mockImplementation(() => {})
+})
+
 afterEach(() => {
+  vi.restoreAllMocks()
   vi.unstubAllGlobals()
   vi.useRealTimers()
 })
@@ -420,6 +426,10 @@ test('provider bounded streaming body rejects oversized response without retry',
   await expect(
     writeGenerationThread(p, prepareGenerationThread(input, source), signal()),
   ).rejects.toMatchObject({ code: 'AI_PROVIDER_FAILED' })
+  expect(providerWarning).toHaveBeenCalledWith(
+    'thread_generation_provider_failure',
+    { stage: 'response_body', attempt: 1 },
+  )
   expect(f).toHaveBeenCalledTimes(1)
 })
 test('deadline cancels a stalled provider response stream', async () => {
@@ -598,4 +608,178 @@ test.each([
   expect(result.sourceUrl).toBe('')
   expect(result.source).toBeNull()
   expect(f).not.toHaveBeenCalled()
+})
+
+// Exact warning arguments enforce the allowlist, including no raw error or response.
+test.each([
+  'http',
+  'envelope',
+  'content',
+  'posts',
+  'usage',
+  'transport',
+  'configuration',
+  'request',
+] as const)('provider failure diagnostics allowlist: %s', async (kind) => {
+  const warning = vi.spyOn(console, 'warn').mockImplementation(() => {})
+  try {
+    const response =
+      kind === 'http'
+        ? new Response('private-response test-key', { status: 401 })
+        : kind === 'envelope'
+          ? new Response('private-response test-key')
+          : kind === 'content'
+            ? Response.json({
+                choices: [
+                  { message: { content: 'private-response test-key' } },
+                ],
+              })
+            : kind === 'usage'
+              ? Response.json({
+                  choices: [
+                    {
+                      finish_reason: 'stop',
+                      message: {
+                        content: JSON.stringify({
+                          title: 'Private title',
+                          posts: [text],
+                        }),
+                      },
+                    },
+                  ],
+                  usage: { completion_tokens: 16385 },
+                })
+              : good([text, 'Another thought.'])
+    const f =
+      kind === 'transport'
+        ? vi
+            .fn()
+            .mockRejectedValue(new Error('private-response test-key ' + text))
+        : vi.fn().mockResolvedValue(response)
+    vi.stubGlobal('fetch', f)
+    const prepared = prepareGenerationThread({ ...input, length: 1 }, source)
+    await expect(
+      writeGenerationThread(
+        kind === 'configuration'
+          ? ({ env: { deepseekApiKey: '' } } as Platform)
+          : p,
+        kind === 'request' ? { ...prepared, requestBytes: 0 } : prepared,
+        signal(),
+      ),
+    ).rejects.toMatchObject({
+      code: 'AI_PROVIDER_FAILED',
+      status: 503,
+      message: 'AI generation is temporarily unavailable. Please try again.',
+    })
+    const stage = {
+      http: 'http',
+      envelope: 'invalid_envelope',
+      content: 'content_json',
+      posts: 'post_count',
+      usage: 'usage_bound',
+      transport: 'transport',
+      configuration: 'configuration',
+      request: 'request_guard',
+    }[kind]
+    const guarded = kind === 'configuration' || kind === 'request'
+    expect(warning.mock.calls).toEqual(
+      kind === 'transport'
+        ? [
+            [
+              'thread_generation_provider_failure',
+              { stage: 'transport', attempt: 1 },
+            ],
+            [
+              'thread_generation_provider_failure',
+              { stage: 'transport', attempt: 2 },
+            ],
+          ]
+        : [
+            [
+              'thread_generation_provider_failure',
+              {
+                stage,
+                attempt: guarded ? 0 : 1,
+                ...(kind === 'http' ? { status: 401 } : {}),
+              },
+            ],
+          ],
+    )
+    expect(f).toHaveBeenCalledTimes(guarded ? 0 : kind === 'transport' ? 2 : 1)
+  } finally {
+    warning.mockRestore()
+  }
+})
+
+test('deadline diagnostics distinguish timeout from cancellation without raw errors', async () => {
+  vi.useFakeTimers()
+  const warning = vi.spyOn(console, 'warn').mockImplementation(() => {})
+  try {
+    const f = vi.fn(() => new Promise<Response>(() => {}))
+    vi.stubGlobal('fetch', f)
+    const pending = writeGenerationThread(
+      p,
+      prepareGenerationThread(input, source),
+      signal(),
+    )
+    const rejected = expect(pending).rejects.toMatchObject({
+      code: 'AI_PROVIDER_FAILED',
+    })
+    await vi.advanceTimersByTimeAsync(45000)
+    await rejected
+    const c = new AbortController()
+    const cancelled = writeGenerationThread(
+      p,
+      prepareGenerationThread(input, source),
+      c.signal,
+    )
+    const cancelledRejection = expect(cancelled).rejects.toMatchObject({
+      code: 'AI_PROVIDER_FAILED',
+    })
+    c.abort()
+    await cancelledRejection
+    expect(warning.mock.calls).toEqual([
+      ['thread_generation_provider_failure', { stage: 'timeout', attempt: 1 }],
+      [
+        'thread_generation_provider_failure',
+        { stage: 'cancelled', attempt: 1 },
+      ],
+    ])
+    expect(f).toHaveBeenCalledTimes(2)
+  } finally {
+    warning.mockRestore()
+  }
+})
+
+test('generated-thread contract errors retain their separate contract', async () => {
+  const warning = vi.spyOn(console, 'warn').mockImplementation(() => {})
+  try {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(good([text], 'length')))
+    await expect(
+      writeGenerationThread(
+        p,
+        prepareGenerationThread(input, source),
+        signal(),
+      ),
+    ).rejects.toMatchObject({ code: 'INVALID_GENERATED_THREAD' })
+    expect(warning).not.toHaveBeenCalled()
+  } finally {
+    warning.mockRestore()
+  }
+})
+
+test('missing provider content is an envelope failure without raw fields', async () => {
+  vi.stubGlobal(
+    'fetch',
+    vi.fn().mockResolvedValue(Response.json({ choices: [], private: text })),
+  )
+  await expect(
+    writeGenerationThread(p, prepareGenerationThread(input, source), signal()),
+  ).rejects.toMatchObject({ code: 'AI_PROVIDER_FAILED' })
+  expect(providerWarning.mock.calls).toEqual([
+    [
+      'thread_generation_provider_failure',
+      { stage: 'invalid_envelope', attempt: 1 },
+    ],
+  ])
 })
