@@ -134,7 +134,7 @@ export async function writeGenerationThread(
         try {
           response = await fetch('https://api.deepseek.com/chat/completions', {
             method: 'POST',
-            redirect: 'error',
+            redirect: 'manual',
             headers: {
               Authorization: `Bearer ${p.env.deepseekApiKey}`,
               'Content-Type': 'application/json',

@@ -132,7 +132,7 @@ export async function retrieveGenerationSource(
     return await withDeadline(signal, 10000, async (s) => {
       const response = await fetch('https://api.deepseek.com/v1/tools/fetch', {
         method: 'POST',
-        redirect: 'error',
+        redirect: 'manual',
         signal: s,
         headers: {
           Authorization: `Bearer ${p.env.deepseekApiKey}`,

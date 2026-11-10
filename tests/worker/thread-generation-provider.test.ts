@@ -85,7 +85,7 @@ test.each(['failed', 'boilerplate'])(
     expect(f.mock.calls[1][0]).toBe('https://api.deepseek.com/v1/tools/fetch')
     expect(f.mock.calls[1][1]).toMatchObject({
       method: 'POST',
-      redirect: 'error',
+      redirect: 'manual',
       headers: {
         Authorization: 'Bearer test-key',
         'Content-Type': 'application/json',
@@ -209,7 +209,7 @@ test('provider sends exact prepared bytes across only one transient retry and pr
   for (const call of f.mock.calls) {
     expect(call[0]).toBe('https://api.deepseek.com/chat/completions')
     expect(call[1].body).toBe(prepared.body)
-    expect(call[1].redirect).toBe('error')
+    expect(call[1].redirect).toBe('manual')
   }
 })
 test.each([401, 402, 400])('permanent %s never retries', async (status) => {
@@ -783,3 +783,92 @@ test('missing provider content is an envelope failure without raw fields', async
     ],
   ])
 })
+
+// These run in workerd, rather than Node's different Request implementation.
+test('Worker Request rejects unsupported error redirect mode before HTTP', () => {
+  expect(
+    () =>
+      new Request('https://api.deepseek.com/chat/completions', {
+        redirect: 'error',
+      }),
+  ).toThrow(TypeError)
+})
+
+test.each(['writer', 'source'] as const)(
+  'paid %s request initializes in the actual Worker runtime before returning a fixture',
+  async (operation) => {
+    const requests: Request[] = []
+    const f = vi.fn(async (url: string, init?: RequestInit) => {
+      const request = new Request(url, init)
+      requests.push(request)
+      if (request.url === input.source) return html('short')
+      return operation === 'writer'
+        ? good()
+        : Response.json({ title: 'Recovered', content: text })
+    })
+    vi.stubGlobal('fetch', f)
+    const result =
+      operation === 'writer'
+        ? await writeGenerationThread(
+            p,
+            prepareGenerationThread(input, source),
+            signal(),
+          )
+        : await retrieveGenerationSource(p, input, signal())
+    expect(result).toMatchObject(
+      operation === 'writer' ? { posts: [text], attempts: 1 } : { text },
+    )
+    expect(requests).toHaveLength(operation === 'writer' ? 1 : 2)
+    expect(requests.at(-1)?.headers.get('Authorization')).toBe(
+      'Bearer test-key',
+    )
+  },
+)
+
+test.each([301, 302, 307, 308])(
+  'paid endpoints reject HTTP%s without following or forwarding authorization',
+  async (status) => {
+    for (const operation of ['writer', 'source'] as const) {
+      const requests: Request[] = []
+      const target = 'https://redirect.example.net/credential-target'
+      const f = vi.fn(
+        async (url: string, init?: RequestInit): Promise<Response> => {
+          const request = new Request(url, init)
+          requests.push(request)
+          if (request.url === input.source) return html('short')
+          if (request.url === target)
+            return operation === 'writer'
+              ? good()
+              : Response.json({ title: 'Unexpected', content: text })
+          // Model fetch's automatic-follow behavior so changing to follow is observable.
+          if (request.redirect === 'follow') return f(target, init)
+          return new Response('', { status, headers: { location: target } })
+        },
+      )
+      vi.stubGlobal('fetch', f)
+      await expect(
+        operation === 'writer'
+          ? writeGenerationThread(
+              p,
+              prepareGenerationThread(input, source),
+              signal(),
+            )
+          : retrieveGenerationSource(p, input, signal()),
+      ).rejects.toMatchObject({
+        code:
+          operation === 'writer' ? 'AI_PROVIDER_FAILED' : 'SOURCE_UNAVAILABLE',
+      })
+      expect(f).toHaveBeenCalledTimes(operation === 'writer' ? 1 : 2)
+      expect(requests.some((request) => request.url === target)).toBe(false)
+      expect(
+        requests
+          .filter((request) => request.headers.has('Authorization'))
+          .map((request) => request.url),
+      ).toEqual([
+        operation === 'writer'
+          ? 'https://api.deepseek.com/chat/completions'
+          : 'https://api.deepseek.com/v1/tools/fetch',
+      ])
+    }
+  },
+)
